@@ -179,6 +179,7 @@
                         <Button Content="Disable all"   Style="{StaticResource SubtleButton}" Click="OnDisableAllClicked" />
                         <Button Content="Auto-sort"     Style="{StaticResource SubtleButton}" Click="OnAutoSortClicked" />
                         <Button Content="Refresh from Workshop" Style="{StaticResource SubtleButton}" Click="OnRefreshFromWorkshopClicked" />
+                        <Button Content="Manage friends" Style="{StaticResource SubtleButton}" Click="OnManageFriendsClicked" />
                         <Button Content="Export collection" Style="{StaticResource SubtleButton}" Click="OnExportCollectionClicked" />
                         <Button Content="Save"          Style="{StaticResource ActionButton}" Click="OnSaveClicked" />
                     </StackPanel>
@@ -216,14 +217,14 @@
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
                             <DataGridTextColumn Header="Workshop ID" Binding="{Binding Id}"       Width="120" IsReadOnly="True" />
-                            <DataGridTemplateColumn Header="" Width="260">
+                            <DataGridTemplateColumn Header="" Width="280">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <StackPanel Orientation="Horizontal">
                                             <Button Content="Folder"    Style="{StaticResource SubtleButton}" Click="OnOpenModFolderClicked" />
-                                            <Button Content="Open page" Style="{StaticResource SubtleButton}" Click="OnOpenWorkshopPageClicked" />
-                                            <Button Content="Subscribe" Style="{StaticResource ActionButton}" Click="OnSubscribeClicked"
-                                                    Visibility="{Binding IsVirtual, Converter={StaticResource BoolToVisibility}}" />
+                                            <Button Content="Page"      Style="{StaticResource SubtleButton}" Click="OnOpenWorkshopPageClicked" />
+                                            <Button Content="{Binding SubscribeButtonLabel}" Style="{StaticResource ActionButton}"
+                                                    Click="OnSubscribeClicked" />
                                         </StackPanel>
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
@@ -265,45 +266,7 @@
                 </Grid>
             </TabItem>
 
-            <!-- ========================= TAB 3: FRIENDS ========================= -->
-            <TabItem Header="Friends">
-                <Grid Margin="16">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
-
-                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="Friends" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        <TextBox x:Name="AddFriendBox" Width="320" Margin="16,0,4,0"
-                                 ToolTip="SteamID64, vanity name, or full profile URL" />
-                        <Button Content="Add"               Style="{StaticResource ActionButton}" Click="OnAddFriendClicked" />
-                        <Button Content="Remove selected"   Style="{StaticResource DangerButton}" Click="OnRemoveFriendClicked" />
-                        <Button Content="Toggle favorite"   Style="{StaticResource SubtleButton}" Click="OnToggleFavoriteClicked" />
-                        <Button Content="Refresh selected"  Style="{StaticResource SubtleButton}" Click="OnRefreshFriendClicked" />
-                        <Button Content="Refresh all"       Style="{StaticResource SubtleButton}" Click="OnRefreshAllFriendsClicked" />
-                        <Button Content="Sync columns"      Style="{StaticResource ActionButton}" Click="OnSyncFriendColumnsClicked"
-                                ToolTip="Rebuild the friend columns on the Mods tab and surface mods you don't have" />
-                    </StackPanel>
-
-                    <TextBlock Grid.Row="1" Foreground="#888" Margin="0,0,0,8"
-                               Text="Adding a friend fetches their public Workshop subscriptions for VT2. Friends-only / private profiles return Visibility=Private. Click Sync columns to refresh the per-friend columns on the Mods tab." />
-
-                    <DataGrid Grid.Row="2" x:Name="FriendsGrid" IsReadOnly="True">
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="★"          Binding="{Binding FavoriteIcon}"     Width="32" />
-                            <DataGridTextColumn Header="Name"       Binding="{Binding DisplayName}"      Width="2*" />
-                            <DataGridTextColumn Header="SteamID64"  Binding="{Binding SteamId64}"        Width="180" />
-                            <DataGridTextColumn Header="Visibility" Binding="{Binding VisibilityText}"   Width="100" />
-                            <DataGridTextColumn Header="Mods"       Binding="{Binding ModCountText}"     Width="80" />
-                            <DataGridTextColumn Header="Last fetch" Binding="{Binding LastFetchedDisplay}" Width="160" />
-                        </DataGrid.Columns>
-                    </DataGrid>
-                </Grid>
-            </TabItem>
-
-            <!-- ========================= TAB 4: CONFLICTS ========================= -->
+            <!-- ========================= TAB 3: CONFLICTS ========================= -->
             <TabItem Header="Conflicts">
                 <Grid Margin="16">
                     <Grid.RowDefinitions>

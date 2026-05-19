@@ -23,8 +23,8 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<ModRowViewModel> _mods = new();
     private readonly ObservableCollection<ProfileRowViewModel> _profiles = new();
     private readonly ObservableCollection<ConflictRowViewModel> _conflicts = new();
-    private readonly ObservableCollection<FriendRowViewModel> _friends = new();
     private FriendsService? _friendsService;
+    private FriendsWindow? _friendsWindow;
 
     // Self-update wiring. The HttpClient is long-lived; the WPF process model means we'd
     // otherwise churn through ephemeral ports across repeated checks.
@@ -41,7 +41,6 @@ public partial class MainWindow : Window
         ModsGrid.ItemsSource = _mods;
         ProfilesGrid.ItemsSource = _profiles;
         ConflictsGrid.ItemsSource = _conflicts;
-        FriendsGrid.ItemsSource = _friends;
 
         _updateChecker   = new UpdateChecker(_updateHttp);
         _updateInstaller = new UpdateInstaller(_updateHttp);
@@ -69,7 +68,10 @@ public partial class MainWindow : Window
             _friendsService = new FriendsService(_updateHttp);
             ReloadMods();
             ReloadProfiles();
-            ReloadFriends();
+            // Rebuild friend columns from cached results on every launch, then kick a background
+            // refresh so live state replaces the cached values without blocking startup.
+            SyncFriendColumns();
+            _ = BackgroundRefreshFriendsAsync();
         }
         catch (Exception ex)
         {
@@ -558,134 +560,67 @@ public partial class MainWindow : Window
 
     // ---------- Friends ----------
 
-    private void ReloadFriends()
-    {
-        if (_friendsService is null) return;
-        _friends.Clear();
-        foreach (var f in _friendsService.List())
-            _friends.Add(new FriendRowViewModel(f));
-    }
-
-    private async void OnAddFriendClicked(object sender, RoutedEventArgs e)
-    {
-        if (_friendsService is null) return;
-        var input = (AddFriendBox.Text ?? "").Trim();
-        if (string.IsNullOrWhiteSpace(input)) { SetStatus("Type a SteamID, vanity, or profile URL first."); return; }
-        SetStatus($"Resolving '{input}'…");
-        try
-        {
-            var friend = await _friendsService.AddAsync(input);
-            if (friend is null) { SetStatus($"Couldn't resolve '{input}' to a Steam profile."); return; }
-            AddFriendBox.Text = "";
-            ReloadFriends();
-            SetStatus($"Added {friend.SteamId64}. Click 'Sync columns' to surface their mods.");
-        }
-        catch (Exception ex) { SetStatus("Add failed: " + ex.Message); }
-    }
-
-    private void OnRemoveFriendClicked(object sender, RoutedEventArgs e)
-    {
-        if (_friendsService is null) return;
-        if (FriendsGrid.SelectedItem is not FriendRowViewModel row) { SetStatus("Pick a friend."); return; }
-        var ok = MessageBox.Show(this, $"Remove {row.SteamId64}?", "Confirm", MessageBoxButton.OKCancel, MessageBoxImage.Question);
-        if (ok != MessageBoxResult.OK) return;
-        _friendsService.Remove(row.SteamId64);
-        ReloadFriends();
-        SyncFriendColumns(); // also drops the friend's column from the Mods tab
-    }
-
-    private void OnToggleFavoriteClicked(object sender, RoutedEventArgs e)
-    {
-        if (_friendsService is null) return;
-        if (FriendsGrid.SelectedItem is not FriendRowViewModel row) { SetStatus("Pick a friend."); return; }
-        _friendsService.ToggleFavorite(row.SteamId64);
-        ReloadFriends();
-    }
-
-    private async void OnRefreshFriendClicked(object sender, RoutedEventArgs e)
-    {
-        if (_friendsService is null) return;
-        if (FriendsGrid.SelectedItem is not FriendRowViewModel row) { SetStatus("Pick a friend."); return; }
-        SetStatus($"Refreshing {row.SteamId64}…");
-        try
-        {
-            var result = await _friendsService.RefreshAsync(row.SteamId64);
-            row.AttachResult(result);
-            SetStatus($"{row.SteamId64}: {result.Visibility}, {result.Mods.Count} mod(s).");
-        }
-        catch (Exception ex) { SetStatus("Refresh failed: " + ex.Message); }
-    }
-
-    private async void OnRefreshAllFriendsClicked(object sender, RoutedEventArgs e)
-    {
-        if (_friendsService is null) return;
-        SetStatus($"Refreshing {_friends.Count} friends…");
-        try
-        {
-            foreach (var row in _friends)
-            {
-                var result = await _friendsService.RefreshAsync(row.SteamId64);
-                row.AttachResult(result);
-            }
-            SetStatus($"Refreshed {_friends.Count} friends.");
-        }
-        catch (Exception ex) { SetStatus("Refresh failed: " + ex.Message); }
-    }
-
-    private async void OnSyncFriendColumnsClicked(object sender, RoutedEventArgs e)
+    private void OnManageFriendsClicked(object sender, RoutedEventArgs e)
     {
         if (_friendsService is null) { SetStatus("Friends not initialized."); return; }
-        if (_block is null) { SetStatus("Load mods first."); return; }
+        if (_friendsWindow is not null && _friendsWindow.IsLoaded)
+        {
+            _friendsWindow.Activate();
+            return;
+        }
+        _friendsWindow = new FriendsWindow(_friendsService) { Owner = this };
+        _friendsWindow.FriendsChanged += (_, _) => SyncFriendColumns();
+        _friendsWindow.Closed += (_, _) => _friendsWindow = null;
+        _friendsWindow.Show();
+    }
 
-        // Refresh any friend who hasn't been pulled in this session yet, so columns reflect
-        // live state on the first Sync click after launch.
+    private async System.Threading.Tasks.Task BackgroundRefreshFriendsAsync()
+    {
+        if (_friendsService is null) return;
         try
         {
-            foreach (var row in _friends)
+            foreach (var friend in _friendsService.List())
             {
-                if (!_friendsService.SessionCache.ContainsKey(row.SteamId64))
-                {
-                    var result = await _friendsService.RefreshAsync(row.SteamId64);
-                    row.AttachResult(result);
-                }
+                await _friendsService.RefreshAsync(friend.SteamId64);
+                // Refresh columns incrementally as each friend lands.
+                await Dispatcher.InvokeAsync(SyncFriendColumns);
             }
         }
-        catch (Exception ex) { SetStatus("Refresh-during-sync failed: " + ex.Message); return; }
-
-        SyncFriendColumns();
+        catch
+        {
+            // Background best-effort. Don't surface — the user can hit "Manage friends" → "Refresh all" if needed.
+        }
     }
 
     /// <summary>
-    /// Programmatically rebuild the per-friend columns on the Mods grid and append virtual rows
-    /// for mods any friend has but we don't. Called when the friend set or fetch results change.
+    /// Rebuild the per-friend columns on the Mods grid and the virtual rows underneath. Called
+    /// at startup (from cache), whenever the friends window mutates the friend set, and after
+    /// each background refresh lands a result.
     /// </summary>
     private void SyncFriendColumns()
     {
         if (_friendsService is null || _block is null) return;
 
-        // 1. Strip prior friend columns (everything beyond the static set).
-        // The static layout from XAML is fixed; we drop anything we tagged below.
+        var friends = _friendsService.List();
+
+        // 1. Strip prior friend columns. Each one carries a recognisable header prefix.
         for (int i = ModsGrid.Columns.Count - 1; i >= 0; i--)
         {
             if (ModsGrid.Columns[i].Header is string s && s.StartsWith("👤 ", StringComparison.Ordinal))
                 ModsGrid.Columns.RemoveAt(i);
         }
 
-        // 2. Remove any prior virtual rows (we'll re-add fresh ones below).
+        // 2. Drop prior virtual rows; we re-derive them.
         for (int i = _mods.Count - 1; i >= 0; i--)
             if (_mods[i].IsVirtual) _mods.RemoveAt(i);
 
-        // 3. Clear per-row friend flags so a removed friend's column doesn't leak data.
         foreach (var row in _mods) row.ClearFriendHas();
 
-        if (_friends.Count == 0)
-        {
-            SetStatus("No friends added.");
-            return;
-        }
+        if (friends.Count == 0) return;
 
-        // 4. Add one new column per friend, bound via the FriendHasMod indexer.
-        foreach (var f in _friends)
+        // 3. One DataGridTemplateColumn per friend, each containing a read-only CheckBox bound
+        //    via the FriendHasMod indexer.
+        foreach (var f in friends)
         {
             var col = new System.Windows.Controls.DataGridTemplateColumn
             {
@@ -693,30 +628,28 @@ public partial class MainWindow : Window
                 Width = new System.Windows.Controls.DataGridLength(80),
             };
             var dt = new DataTemplate();
-            var tb = new System.Windows.FrameworkElementFactory(typeof(System.Windows.Controls.TextBlock));
-            tb.SetBinding(System.Windows.Controls.TextBlock.TextProperty,
-                new System.Windows.Data.Binding($"FriendHasMod[{f.SteamId64}]")
-                {
-                    Converter = new BoolToCheckConverter(),
-                });
-            tb.SetValue(System.Windows.Controls.TextBlock.HorizontalAlignmentProperty, System.Windows.HorizontalAlignment.Center);
-            tb.SetValue(System.Windows.Controls.TextBlock.FontWeightProperty, System.Windows.FontWeights.Bold);
-            dt.VisualTree = tb;
+            var cb = new System.Windows.FrameworkElementFactory(typeof(System.Windows.Controls.CheckBox));
+            cb.SetBinding(System.Windows.Controls.CheckBox.IsCheckedProperty,
+                new System.Windows.Data.Binding($"FriendHasMod[{f.SteamId64}]") { Mode = System.Windows.Data.BindingMode.OneWay });
+            cb.SetValue(System.Windows.Controls.CheckBox.IsHitTestVisibleProperty, false);
+            cb.SetValue(System.Windows.Controls.CheckBox.FocusableProperty, false);
+            cb.SetValue(System.Windows.Controls.CheckBox.HorizontalAlignmentProperty, System.Windows.HorizontalAlignment.Center);
+            dt.VisualTree = cb;
             col.CellTemplate = dt;
             ModsGrid.Columns.Add(col);
         }
 
-        // 5. Populate per-row friend flags + collect "friend has but I don't" IDs.
+        // 4. Populate per-row friend flags from cached scrape results + collect virtual rows.
         var ownedIds = new HashSet<string>(_mods.Where(m => !m.IsVirtual).Select(m => m.Id), StringComparer.Ordinal);
         var virtualByMod = new Dictionary<string, (string Title, string FirstFriend)>(StringComparer.Ordinal);
 
-        foreach (var f in _friends)
+        foreach (var f in friends)
         {
             if (!_friendsService.SessionCache.TryGetValue(f.SteamId64, out var sub)) continue;
-            var modSet = sub.Mods.ToDictionary(m => m.Id, m => m.Title);
+            var modSet = new HashSet<string>(sub.Mods.Select(m => m.Id), StringComparer.Ordinal);
 
             foreach (var row in _mods.Where(m => !m.IsVirtual))
-                row.SetFriendHas(f.SteamId64, modSet.ContainsKey(row.Id));
+                row.SetFriendHas(f.SteamId64, modSet.Contains(row.Id));
 
             foreach (var m in sub.Mods)
             {
@@ -726,12 +659,11 @@ public partial class MainWindow : Window
             }
         }
 
-        // 6. Append virtual rows for mods we don't have.
+        // 5. Append virtual rows; populate their friend flags too.
         foreach (var (id, info) in virtualByMod.OrderBy(kv => kv.Value.Title, StringComparer.OrdinalIgnoreCase))
         {
             var row = ModRowViewModel.Virtual(id, info.Title, info.FirstFriend);
-            // Friend flags for this virtual row too — show every friend that has it.
-            foreach (var f in _friends)
+            foreach (var f in friends)
             {
                 if (_friendsService.SessionCache.TryGetValue(f.SteamId64, out var sub))
                     row.SetFriendHas(f.SteamId64, sub.Mods.Any(m => m.Id == id));
@@ -739,14 +671,20 @@ public partial class MainWindow : Window
             _mods.Add(row);
         }
 
-        var stale = _mods.Count(m => m.FreshnessIcon == "⚠");
-        SetStatus($"Synced {_friends.Count} friend column(s). {virtualByMod.Count} mod(s) you don't have available to subscribe. {stale} stale among yours.");
+        var ghostCount = virtualByMod.Count;
+        if (ghostCount > 0)
+            SetStatus($"{friends.Count} friend column(s); {ghostCount} mod(s) available from friends that you don't have.");
+        else
+            SetStatus($"{friends.Count} friend column(s). You have everything they're subscribed to.");
     }
 
     private void OnSubscribeClicked(object sender, RoutedEventArgs e)
     {
         if (sender is not System.Windows.Controls.Button b || b.DataContext is not ModRowViewModel row) return;
-        // Steam overlay URL — opens the Workshop page in-client if Steam's running, browser otherwise.
+        // `steam://url/CommunityFilePage/<id>` opens the Workshop page inside Steam (overlay if
+        // a game is running, the client otherwise). Steam itself renders the contextually-correct
+        // Subscribe/Unsubscribe button. No reliable URL scheme exists to toggle subscription
+        // without that user click.
         try
         {
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
@@ -754,17 +692,9 @@ public partial class MainWindow : Window
                 FileName = $"steam://url/CommunityFilePage/{row.Id}",
                 UseShellExecute = true,
             });
-            SetStatus($"Opened Workshop page for {row.Name} in Steam. Click Subscribe there, then 'Sync columns' to refresh.");
+            var verb = row.IsVirtual ? "Subscribe" : "Unsubscribe";
+            SetStatus($"Opened Workshop page for {row.Name}. Click {verb} in Steam, then reload here.");
         }
         catch (Exception ex) { SetStatus("Open failed: " + ex.Message); }
     }
-}
-
-/// <summary>WPF binding helper — turns a bool into the ✓ / blank glyph used by per-friend columns.</summary>
-public sealed class BoolToCheckConverter : System.Windows.Data.IValueConverter
-{
-    public object Convert(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture) =>
-        value is bool b && b ? "✓" : "";
-    public object ConvertBack(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture) =>
-        throw new NotSupportedException();
 }

@@ -39,6 +39,8 @@ public sealed class ModRowViewModel : INotifyPropertyChanged
 
     public bool IsVirtual { get; private init; }
     public string? SourceFriendSid { get; private init; }
+    /// <summary>"Subscribe" for friend-only ghost rows, "Unsubscribe" for mods you have installed.</summary>
+    public string SubscribeButtonLabel => IsVirtual ? "Subscribe" : "Unsubscribe";
 
     public ModEntry Entry => _entry;
 

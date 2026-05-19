@@ -4,6 +4,14 @@ All notable changes to vt2-mod-manager. Versioning follows [SemVer](https://semv
 
 ## [Unreleased]
 
+## [0.1.2]
+
+### Changed
+- **Friends UX reworked.** Removed the dedicated Friends tab. Friend management now lives in a modeless "Manage friends" window opened from the Mods tab toolbar — friends are columns on the Mods grid, not a separate view.
+- Per-friend columns render real **read-only `CheckBox`** controls (checked = friend is subscribed) instead of ✓ / blank glyphs.
+- The Subscribe action is now a button on **every** row: `Subscribe` for friend-only ghost rows, `Unsubscribe` for mods you have installed. Both open the Steam-overlay Workshop page where Steam itself renders the contextually-correct toggle.
+- Friend columns auto-rebuild from cached session data at launch; a background refresh kicks off after startup and re-renders columns as each friend's live state arrives. No more "Sync columns" click required.
+
 ## [0.1.1]
 
 ### Fixed
