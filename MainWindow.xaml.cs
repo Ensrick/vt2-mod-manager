@@ -47,10 +47,10 @@ public partial class MainWindow : Window
         _updateChecker   = new UpdateChecker(_updateHttp);
         _updateInstaller = new UpdateInstaller(_updateHttp);
 
-        Loaded += (_, _) =>
+        Loaded += async (_, _) =>
         {
-            InitialLoad();
-            // Fire-and-forget. Dev builds short-circuit so `dotnet run` stays silent.
+            SetStatus("Loading…");
+            await InitialLoadAsync();
             if (!Program.IsDevBuild()) _ = CheckForUpdatesAsync();
         };
     }
@@ -62,20 +62,77 @@ public partial class MainWindow : Window
         return c;
     }
 
-    private void InitialLoad()
+    /// <summary>
+    /// Startup loader. Renders the window first, then performs every disk + Steam I/O on a
+    /// background <see cref="Task"/> so the UI thread never blocks. Each stage marshals its
+    /// results back to the dispatcher for binding. Pre-v0.1.8 startup was fully synchronous,
+    /// which hung on machines where localconfig.vdf or appworkshop_552500.acf were slow to read.
+    /// </summary>
+    private async System.Threading.Tasks.Task InitialLoadAsync()
     {
         try
         {
-            _settings = _settingsStore.Load();
+            // Stage 0: tiny synchronous bootstrap (just object construction).
+            _settings       = _settingsStore.Load();
             _friendsService = new FriendsService(_updateHttp);
-            ReloadMods();
-            ReloadProfiles();
-            // Auto-discover Steam friends from localconfig.vdf (best effort), then rebuild
-            // friend columns from cache and kick a background XML+scrape refresh so live state
-            // replaces cached values without blocking startup.
-            TryAutoLoadSteamFriends();
+
+            // Stage 1: read user_settings.config + cross-ref appworkshop ACF off the UI thread.
+            SetStatus("Reading user_settings.config…");
+            var modLoad = await System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    var locator = new UserSettingsConfigLocator(_settings);
+                    var p = locator.Resolve();
+                    if (!System.IO.File.Exists(p)) return (Path: p, Block: (ModListBlock?)null, Ids: (HashSet<string>?)null, Err: (string?)null);
+                    var b = _reader.ReadFile(p);
+                    HashSet<string>? ids = null;
+                    try { ids = ResolveInstalledIdsCore(_settings); } catch { /* swallow; we'll just not filter */ }
+                    return (Path: p, Block: (ModListBlock?)b, Ids: ids, Err: (string?)null);
+                }
+                catch (Exception ex)
+                {
+                    return (Path: "(unknown)", Block: (ModListBlock?)null, Ids: (HashSet<string>?)null, Err: (string?)ex.Message);
+                }
+            });
+
+            if (modLoad.Err is not null)
+            {
+                SetStatus("Failed to read mod list: " + modLoad.Err);
+            }
+            else if (modLoad.Block is null)
+            {
+                SetStatus($"user_settings.config not found at {modLoad.Path}. Set 'user_settings_config_path_override' in settings.json.");
+            }
+            else
+            {
+                _block = modLoad.Block;
+                RebuildModRowsFromBlock(modLoad.Ids);
+                var hidden = modLoad.Ids is null ? 0 : _block.Entries.Count - _mods.Count;
+                SetStatus(hidden > 0
+                    ? $"Loaded {_mods.Count} subscribed mods ({hidden} unsubscribed hidden)."
+                    : $"Loaded {_mods.Count} mods.");
+            }
+
+            // Stage 2: profiles dir listing — fast, but still don't block in case it's slow.
+            await System.Threading.Tasks.Task.Run(() => { try { Dispatcher.Invoke(ReloadProfiles); } catch { } });
+
+            // Stage 3: Steam friend roster from localconfig.vdf. THIS is what hung pre-v0.1.8;
+            // some installs have ~10 MB userdata configs that take seconds to parse.
+            await System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    var resolver = new SteamPathResolver(_settings);
+                    if (resolver.TryResolve(out var steamRoot))
+                        _friendsService.SyncSteamRoster(steamRoot);
+                }
+                catch { /* best effort */ }
+            });
+
             ReloadFriends();
             SyncFriendColumns();
+
             _ = BackgroundRefreshFriendsAsync();
         }
         catch (Exception ex)
@@ -124,11 +181,13 @@ public partial class MainWindow : Window
 
     /// <summary>Returns the set of Workshop IDs Steam currently reports as installed for VT2,
     /// or null if we couldn't resolve the Steam library (in which case we don't filter).</summary>
-    private HashSet<string>? ResolveInstalledIds()
+    private HashSet<string>? ResolveInstalledIds() => ResolveInstalledIdsCore(_settings);
+
+    private static HashSet<string>? ResolveInstalledIdsCore(Settings settings)
     {
         try
         {
-            var resolver = new SteamPathResolver(_settings);
+            var resolver = new SteamPathResolver(settings);
             if (!resolver.TryResolve(out var steamRoot)) return null;
             var libs = new LibraryFoldersResolver().Resolve(steamRoot);
             var ids = new HashSet<string>(StringComparer.Ordinal);

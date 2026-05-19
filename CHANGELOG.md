@@ -4,6 +4,18 @@ All notable changes to vt2-mod-manager. Versioning follows [SemVer](https://semv
 
 ## [Unreleased]
 
+## [0.1.8]
+
+### Fixed
+- **App hung at launch on some installs.** Startup chain was fully synchronous: read user_settings.config, cross-ref appworkshop_552500.acf, parse every localconfig.vdf under userdata. On machines with multiple Steam accounts or large config files (commonly 5–10 MB) this blocked the UI thread for seconds. Now the window renders immediately with a "Loading…" status; all disk + Steam I/O runs on a background Task and marshals results back to the UI thread when ready.
+
+### Workaround if the prior version still hangs
+The CLI bypass works without touching the UI:
+```
+Vt2ModManager.exe selfupdate --yes
+```
+This force-downloads v0.1.8 and swaps the binary in place.
+
 ## [0.1.7]
 
 ### Fixed
