@@ -4,13 +4,13 @@ All notable changes to vt2-mod-manager. Versioning follows [SemVer](https://semv
 
 ## [Unreleased]
 
-### Added
-- Friends tab: add/remove/favorite friends by SteamID64, vanity URL, or profile URL.
-- Dynamic per-friend columns on the Mods tab showing whether each selected friend is subscribed to that mod.
-- Virtual rows for mods a friend has that you don't, with a "Subscribe" button that opens the Workshop page.
-- Auto-update from GitHub Releases with SHA-256 verification and in-place .new/.old swap.
-- CLI: `selfupdate` verb.
-- Friend selection persists across launches.
+## [0.1.1]
+
+### Fixed
+- README incorrectly named the launched game binary `binaries\stingray_win64_release_x64.exe`. The actual path is `binaries\vermintide2.exe`.
+
+### Changed
+- `.gitignore` ignores `*.sha256` so release-build hash sidecars don't clutter `git status`.
 
 ## [0.1.0]
 
@@ -36,6 +36,8 @@ First public release. Replaces the Fatshark launcher's Mods tab and adds load-or
   - Size-match flag (✓ / ⚠ / ?) comparing local vs API `file_size`.
   - Freshness flag (✓ / ⚠ / ?) comparing local `timeupdated` vs API `time_updated`.
   - `Folder` button that opens the mod's Workshop content folder in Explorer.
+- **Friends compare (Phase 9a + 9d)** — add friends by SteamID64, vanity URL, or full profile URL. Per-friend columns on the Mods tab show ✓ / blank for each row. Virtual rows surface mods a friend has subscribed but you haven't, with a `Subscribe` button that opens the Steam-overlay Workshop page. Selection + favorites persist across launches via `%APPDATA%\Vt2ModManager\friends.json`.
+- **Auto-update (Phase 9b)** — startup check against the latest GitHub Release; SHA-256-verified in-place `.new`/`.old` swap on user confirmation. Dev builds (`bin\Debug\` or `0.0.0-dev` version) skip the check silently.
 
 ### CLI
 - `list [--json]` — list subscribed mods in load order.
@@ -45,6 +47,7 @@ First public release. Replaces the Fatshark launcher's Mods tab and adds load-or
 - `sort [--dry-run]` — auto-sort load order.
 - `collection export [--enabled-only] [--format json|urls|tabbed] [--out <path>]` — export current mod set.
 - `launch [--via-steam] [--official-realm] [--args "..."]` — start VT2.
+- `selfupdate [--yes] [--json]` — check GitHub for a newer build; `--yes` installs it. Exit 10 = update available.
 - `help` / `--help` / `-h`.
 
 Global flags: `--no-banner`, `--config <path>`.

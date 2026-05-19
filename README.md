@@ -140,7 +140,7 @@ selfupdate [--yes] [--json]           Check GitHub for a newer build; --yes inst
 The `Launch VT2 (bypass launcher)` button (and `vt2-mod-manager launch`) starts the game **without** the Fatshark launcher UI. Steps it performs:
 
 1. Writes `binaries\steam_appid.txt` containing `552500` next to the game exe. Steamworks reads this on init when the game isn't started by Steam itself, so authentication still works.
-2. Spawns `binaries\stingray_win64_release_x64.exe` with arguments:
+2. Spawns `binaries\vermintide2.exe` with arguments:
    - `-eac-untrusted` — modded realm (default; clear the checkbox or pass `--official-realm` to use the official realm with EAC).
    - Any extra args from `--args "..."`.
 3. Returns immediately. The game window opens in 5–10 seconds without going through `vermintide2_launcher.exe`.
