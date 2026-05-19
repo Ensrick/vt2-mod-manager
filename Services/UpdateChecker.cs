@@ -28,12 +28,20 @@ public sealed record UpdateCheckResult(
     long? AssetSize,
     string? AssetSha256,
     string? ErrorMessage,
-    DateTime CheckedAtUtc);
+    DateTime CheckedAtUtc,
+    string? ETag = null);
 
 /// <summary>
 /// Polls the GitHub Releases API for the latest Vt2ModManager release and compares the
-/// tag against the running version. Disk-caches the last successful result for 6h so we
-/// don't hammer the API on every launch. Failed checks aren't cached — next launch retries.
+/// tag against the running version. Cache TTL is intentionally short so a freshly-published
+/// release reaches users on the next launch; the cache exists only to dampen burst-launches
+/// during dev iteration. Earlier releases used a 6h TTL — that hid new releases from anyone
+/// who'd launched the prior version within the same window. See CHANGELOG v0.1.3.
+///
+/// On every launch with a cache hit we ALSO send a conditional HTTP request (If-None-Match
+/// using the stored ETag); GitHub returns 304 when nothing's changed, which doesn't count
+/// against the 60/hr unauth'd rate limit. Net result: we hit the wire on every launch but
+/// the wire usually answers in &lt;100ms with 304.
 ///
 /// Asset selection: looks for a release asset named exactly <c>Vt2ModManager.exe</c>. SHA-256
 /// is sourced from GitHub's per-asset <c>digest</c> field (<c>sha256:&lt;hex&gt;</c>) when
@@ -47,7 +55,8 @@ public sealed class UpdateChecker
 
     public const string DefaultAssetName = "Vt2ModManager.exe";
 
-    public static readonly TimeSpan CacheTtl = TimeSpan.FromHours(6);
+    /// <summary>Burst-dampener only. Anything older re-checks the API.</summary>
+    public static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(1);
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -81,30 +90,42 @@ public sealed class UpdateChecker
     public async Task<UpdateCheckResult> CheckAsync(
         string currentVersion, bool forceRefresh = false, CancellationToken ct = default)
     {
-        if (!forceRefresh)
+        var cached = TryLoadCache();
+
+        // Short-TTL burst-dampener: only honor cache for sub-TTL hits, AND only if the cache
+        // was written by the running version. A version mismatch always forces a fresh poll —
+        // that's how the post-self-update launch sees a newer release.
+        if (!forceRefresh
+            && cached is not null
+            && DateTime.UtcNow - cached.CheckedAtUtc < CacheTtl
+            && string.Equals(cached.CurrentVersion, currentVersion, StringComparison.Ordinal))
         {
-            var cached = TryLoadCache();
-            if (cached is not null
-                && DateTime.UtcNow - cached.CheckedAtUtc < CacheTtl
-                // Cache was written by an older install. After a self-update the previous
-                // build cached "{current: X, latest: Y}" then installed Y, and the new
-                // build's launch must not just re-use that cache, because a NEWER release
-                // (Z > Y) may have shipped inside the 6h TTL window. Force a fresh poll
-                // whenever the running binary's version doesn't match what wrote the cache.
-                && string.Equals(cached.CurrentVersion, currentVersion, StringComparison.Ordinal))
-            {
-                // Cached result was computed against whatever version was running back then —
-                // re-evaluate against the version we're running *now* so a just-installed
-                // exe doesn't keep seeing "update available" for the rest of the TTL window.
-                return RecomputeStatus(cached, currentVersion);
-            }
+            return RecomputeStatus(cached, currentVersion);
         }
 
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, _releasesUrl);
             req.Headers.Accept.ParseAdd("application/vnd.github+json");
+            // Conditional request — GitHub returns 304 (and doesn't charge against the rate
+            // limit) when the release content hasn't changed since we last cached its ETag.
+            if (!forceRefresh && !string.IsNullOrEmpty(cached?.ETag))
+                req.Headers.TryAddWithoutValidation("If-None-Match", cached.ETag);
+
             using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+
+            if ((int)resp.StatusCode == 304 && cached is not null)
+            {
+                // Server says no change — refresh the timestamp + recompute status against the
+                // currently-running version, then re-save so we keep stretching the TTL.
+                var refreshed = RecomputeStatus(cached, currentVersion) with
+                {
+                    CheckedAtUtc = DateTime.UtcNow,
+                };
+                TrySaveCache(refreshed);
+                return refreshed;
+            }
+
             if (!resp.IsSuccessStatusCode)
             {
                 return Failed(currentVersion, $"HTTP {(int)resp.StatusCode}");
@@ -128,12 +149,14 @@ public sealed class UpdateChecker
                 }
             }
 
+            var etag = resp.Headers.ETag?.Tag;
             var result = parsed with
             {
                 CurrentVersion = currentVersion,
                 AssetSha256 = sha256,
                 Status = CompareStatus(currentVersion, parsed.LatestVersion!),
                 CheckedAtUtc = DateTime.UtcNow,
+                ETag = etag,
             };
 
             TrySaveCache(result);

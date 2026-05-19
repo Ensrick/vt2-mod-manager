@@ -4,6 +4,21 @@ All notable changes to vt2-mod-manager. Versioning follows [SemVer](https://semv
 
 ## [Unreleased]
 
+## [0.1.3]
+
+### Fixed
+- **Auto-update banner could miss new releases for up to 6 hours.** The on-disk cache TTL was 6h; when the just-installed exe wrote a cache saying "v0.1.x is latest" any subsequent release shipped within the TTL window stayed hidden. Reduced TTL to 1 minute and made the cache a pure burst-dampener.
+
+### Added
+- ETag / `If-None-Match` conditional requests to the GitHub releases API. Every launch now polls, but unchanged responses return 304 (which doesn't count against the 60/hr unauth'd rate limit) — so the short TTL doesn't cost network round-trips when nothing's new.
+
+### Workaround for v0.1.0 / v0.1.1 / v0.1.2 users stuck on old cache
+Run from a command prompt:
+```
+"%LOCALAPPDATA%\Programs\Vt2ModManager\Vt2ModManager.exe" selfupdate --yes
+```
+or from wherever the exe lives. CLI `selfupdate` already bypasses the cache via `forceRefresh: true` so it always sees the latest release.
+
 ## [0.1.2]
 
 ### Changed
