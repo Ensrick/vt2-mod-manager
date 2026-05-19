@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<profile>
+	<steamID64>76561198000000003</steamID64>
+	<steamID><![CDATA[PrivateUser]]></steamID>
+	<privacyState>private</privacyState>
+	<visibilityState>1</visibilityState>
+	<avatarIcon><![CDATA[https://avatars.steamstatic.com/private_icon.jpg]]></avatarIcon>
+	<avatarMedium><![CDATA[https://avatars.steamstatic.com/private_medium.jpg]]></avatarMedium>
+	<avatarFull><![CDATA[https://avatars.steamstatic.com/private_full.jpg]]></avatarFull>
+	<vacBanned>0</vacBanned>
+	<tradeBanState>None</tradeBanState>
+	<isLimitedAccount>0</isLimitedAccount>
+</profile>

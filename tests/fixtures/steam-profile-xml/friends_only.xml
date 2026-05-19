@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<profile>
+	<steamID64>76561198000000002</steamID64>
+	<steamID><![CDATA[FriendsOnlyUser]]></steamID>
+	<onlineState>offline</onlineState>
+	<stateMessage><![CDATA[Last Online 3 days ago]]></stateMessage>
+	<privacyState>friendsonly</privacyState>
+	<visibilityState>2</visibilityState>
+	<avatarIcon><![CDATA[https://avatars.steamstatic.com/friendsonly_icon.jpg]]></avatarIcon>
+	<avatarMedium><![CDATA[https://avatars.steamstatic.com/friendsonly_medium.jpg]]></avatarMedium>
+	<avatarFull><![CDATA[https://avatars.steamstatic.com/friendsonly_full.jpg]]></avatarFull>
+	<vacBanned>0</vacBanned>
+	<tradeBanState>None</tradeBanState>
+	<isLimitedAccount>0</isLimitedAccount>
+</profile>

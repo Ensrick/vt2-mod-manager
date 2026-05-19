@@ -31,13 +31,25 @@ public partial class FriendsWindow : Window
 
     public void Reload()
     {
+        // Unsubscribe from previous rows so old refs don't keep firing into a stale handler.
+        foreach (var r in _rows) r.PropertyChanged -= OnRowPropertyChanged;
         _rows.Clear();
         foreach (var f in _service.List())
         {
             var row = new FriendRowViewModel(f);
             if (_service.SessionCache.TryGetValue(f.SteamId64, out var cached))
                 row.AttachResult(cached);
+            row.PropertyChanged += OnRowPropertyChanged;
             _rows.Add(row);
+        }
+    }
+
+    private void OnRowPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(FriendRowViewModel.Favorite) && sender is FriendRowViewModel row)
+        {
+            try { _service.SetFavorite(row.SteamId64, row.Favorite); } catch { /* best effort */ }
+            FriendsChanged?.Invoke(this, EventArgs.Empty);
         }
     }
 

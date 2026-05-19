@@ -68,8 +68,10 @@ public partial class MainWindow : Window
             _friendsService = new FriendsService(_updateHttp);
             ReloadMods();
             ReloadProfiles();
-            // Rebuild friend columns from cached results on every launch, then kick a background
-            // refresh so live state replaces the cached values without blocking startup.
+            // Auto-discover Steam friends from localconfig.vdf (best effort), then rebuild
+            // friend columns from cache and kick a background XML+scrape refresh so live state
+            // replaces cached values without blocking startup.
+            TryAutoLoadSteamFriends();
             SyncFriendColumns();
             _ = BackgroundRefreshFriendsAsync();
         }
@@ -560,6 +562,23 @@ public partial class MainWindow : Window
 
     // ---------- Friends ----------
 
+    private void TryAutoLoadSteamFriends()
+    {
+        if (_friendsService is null) return;
+        try
+        {
+            var resolver = new SteamPathResolver(_settings);
+            if (!resolver.TryResolve(out var steamRoot)) return;
+            var added = _friendsService.SyncSteamRoster(steamRoot);
+            if (added > 0)
+                SetStatus($"Discovered {added} new Steam friend(s) from your roster. Open 'Manage friends' to pick which to compare.");
+        }
+        catch
+        {
+            // Best effort; users can still manually-add friends via the window.
+        }
+    }
+
     private void OnManageFriendsClicked(object sender, RoutedEventArgs e)
     {
         if (_friendsService is null) { SetStatus("Friends not initialized."); return; }
@@ -601,7 +620,9 @@ public partial class MainWindow : Window
     {
         if (_friendsService is null || _block is null) return;
 
-        var friends = _friendsService.List();
+        // Only "show as column" friends populate the grid — everyone else stays in the roster
+        // for opt-in via the Manage Friends window.
+        var friends = _friendsService.List().Where(f => f.Favorite).ToList();
 
         // 1. Strip prior friend columns. Each one carries a recognisable header prefix.
         for (int i = ModsGrid.Columns.Count - 1; i >= 0; i--)
@@ -678,23 +699,55 @@ public partial class MainWindow : Window
             SetStatus($"{friends.Count} friend column(s). You have everything they're subscribed to.");
     }
 
-    private void OnSubscribeClicked(object sender, RoutedEventArgs e)
+    private async void OnSubscribeClicked(object sender, RoutedEventArgs e)
     {
         if (sender is not System.Windows.Controls.Button b || b.DataContext is not ModRowViewModel row) return;
-        // `steam://url/CommunityFilePage/<id>` opens the Workshop page inside Steam (overlay if
-        // a game is running, the client otherwise). Steam itself renders the contextually-correct
-        // Subscribe/Unsubscribe button. No reliable URL scheme exists to toggle subscription
-        // without that user click.
+        if (!ulong.TryParse(row.Id, out var workshopId))
+        {
+            SetStatus($"Mod {row.Id}: not a numeric Workshop ID; can't subscribe.");
+            return;
+        }
+        var subscribing = row.IsVirtual;
+        b.IsEnabled = false;
         try
         {
+            // Prefer the in-app authenticated path (Steam CEF cookies). Falls back to the
+            // steam:// overlay URL when cookies are unavailable (Steam not running, user never
+            // opened the community in-overlay, App-Bound Encryption etc.).
+            var cookieRead = new SteamCefCookieReader().Read();
+            if (cookieRead.Outcome == SteamCefCookieOutcome.Ok && cookieRead.Cookies is not null)
+            {
+                var client = new SteamSubscribeClient(_updateHttp, cookieRead.Cookies);
+                var task = subscribing
+                    ? client.SubscribeAsync(Vt2Installation.AppId, workshopId)
+                    : client.UnsubscribeAsync(Vt2Installation.AppId, workshopId);
+                var result = await task;
+                if (result.Success)
+                {
+                    SetStatus($"{(subscribing ? "Subscribed to" : "Unsubscribed from")} {row.Name} via Steam. Reload Mods to sync.");
+                    return;
+                }
+                SetStatus($"In-app {(subscribing ? "subscribe" : "unsubscribe")} failed ({result.Outcome}); opening Steam overlay.");
+            }
+            else
+            {
+                SetStatus($"Steam cookies unavailable ({cookieRead.Outcome}); opening Steam overlay.");
+            }
+
+            // Fallback: open the Workshop page so the user can click Subscribe themselves.
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
                 FileName = $"steam://url/CommunityFilePage/{row.Id}",
                 UseShellExecute = true,
             });
-            var verb = row.IsVirtual ? "Subscribe" : "Unsubscribe";
-            SetStatus($"Opened Workshop page for {row.Name}. Click {verb} in Steam, then reload here.");
         }
-        catch (Exception ex) { SetStatus("Open failed: " + ex.Message); }
+        catch (Exception ex)
+        {
+            SetStatus("Subscribe failed: " + ex.Message);
+        }
+        finally
+        {
+            b.IsEnabled = true;
+        }
     }
 }

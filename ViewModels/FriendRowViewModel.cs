@@ -29,6 +29,12 @@ public sealed class FriendRowViewModel : INotifyPropertyChanged
         }
     }
     public string FavoriteIcon => Friend.Favorite ? "★" : "";
+    public string OriginBadge => Friend.Origin switch
+    {
+        "steam"  => "Steam",
+        "manual" => "Manual",
+        _        => Friend.Origin,
+    };
 
     public string LastFetchedDisplay => Friend.LastFetchedUtc is { } t
         ? t.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)

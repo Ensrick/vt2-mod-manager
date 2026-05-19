@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<profile>
+	<steamID64>76561198000000001</steamID64>
+	<steamID><![CDATA[PublicUser]]></steamID>
+	<onlineState>online</onlineState>
+	<stateMessage><![CDATA[Online]]></stateMessage>
+	<privacyState>public</privacyState>
+	<visibilityState>3</visibilityState>
+	<avatarIcon><![CDATA[https://avatars.steamstatic.com/public_icon.jpg]]></avatarIcon>
+	<avatarMedium><![CDATA[https://avatars.steamstatic.com/public_medium.jpg]]></avatarMedium>
+	<avatarFull><![CDATA[https://avatars.steamstatic.com/public_full.jpg]]></avatarFull>
+	<vacBanned>0</vacBanned>
+	<tradeBanState>None</tradeBanState>
+	<isLimitedAccount>0</isLimitedAccount>
+	<customURL><![CDATA[publicuser]]></customURL>
+	<memberSince>January 1, 2010</memberSince>
+</profile>

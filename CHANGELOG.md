@@ -4,6 +4,22 @@ All notable changes to vt2-mod-manager. Versioning follows [SemVer](https://semv
 
 ## [Unreleased]
 
+## [0.1.4]
+
+### Added
+- **Auto-loaded Steam friend roster.** On startup, friends are read from `<SteamRoot>\userdata\<accountid>\config\localconfig.vdf` and merged into `friends.json` with `origin=steam`. No more typing SteamID64s for friends already on your Steam list.
+- **XML profile pre-flight.** Each friend refresh hits `https://steamcommunity.com/profiles/<sid>?xml=1` first to detect Public / Friends-only / Private + the canonical persona name. Friends-only and Private profiles short-circuit the heavier HTML subscription scrape (which never works for them).
+- **In-app Subscribe / Unsubscribe** via Steam's CEF session cookies. `SteamCefCookieReader` DPAPI-decrypts the Chromium cookie store at `%LOCALAPPDATA%\Steam\htmlcache\Default\Network\Cookies`; `SteamSubscribeClient` POSTs to `steamcommunity.com/sharedfiles/{subscribe,unsubscribe}` with the live `steamLoginSecure` + `sessionid`. Falls back to opening the Workshop page in the Steam overlay if cookies are unavailable.
+- **"Show" checkbox column** on the Manage Friends window. Friends become Mods-tab columns only when checked — keeps a 50-friend Steam roster from exploding into 50 columns.
+- **`Origin` badge** on each row (`Steam` / `Manual`) so you can see at a glance which friends came from auto-discovery vs which you added yourself.
+
+### Migrated
+- `friends.json` schema bumped 1 → 2 (wrapper object with `schema_version`). Existing v0.1.0 — v0.1.3 entries are auto-upgraded on first load: every previously-tracked friend is set to `favorite=true` so they keep showing as columns. Migration runs once and re-saves the file in the new shape.
+
+### Notes
+- The in-app subscribe path is best-effort. The most common failure is `MissingRequiredCookies` — Steam only writes `steamLoginSecure` after you've opened the community in the Steam overlay this session. When that happens the app falls back to the overlay link automatically.
+- Friends-only `<visibilityState>=2` is collapsed to `Private` because our `ProfileVisibility` enum has no FriendsOnly member. Downstream effect is identical (can't scrape subs either way).
+
 ## [0.1.3]
 
 ### Fixed
