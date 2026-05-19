@@ -1,0 +1,26 @@
+{
+  "url": "https://api.github.com/repos/Ensrick/vt2-mod-manager/releases/123456",
+  "html_url": "https://github.com/Ensrick/vt2-mod-manager/releases/tag/v0.2.0",
+  "id": 123456,
+  "tag_name": "v0.2.0",
+  "name": "v0.2.0",
+  "draft": false,
+  "prerelease": false,
+  "created_at": "2026-05-01T12:00:00Z",
+  "published_at": "2026-05-01T12:30:00Z",
+  "assets": [
+    {
+      "url": "https://api.github.com/repos/Ensrick/vt2-mod-manager/releases/assets/9000001",
+      "id": 9000001,
+      "name": "Vt2ModManager.exe",
+      "label": null,
+      "content_type": "application/octet-stream",
+      "state": "uploaded",
+      "size": 75000000,
+      "download_count": 17,
+      "browser_download_url": "https://github.com/Ensrick/vt2-mod-manager/releases/download/v0.2.0/Vt2ModManager.exe",
+      "digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    }
+  ],
+  "body": "## Changes\n- foo\n- bar\n"
+}

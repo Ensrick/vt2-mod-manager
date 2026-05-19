@@ -1,0 +1,10 @@
+{
+  "tag_name": "v0.5.0",
+  "name": "v0.5.0",
+  "assets": [
+    {
+      "name": "source.zip",
+      "browser_download_url": "https://github.com/Ensrick/vt2-mod-manager/archive/refs/tags/v0.5.0.zip"
+    }
+  ]
+}
