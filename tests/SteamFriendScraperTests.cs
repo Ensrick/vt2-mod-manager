@@ -166,6 +166,109 @@ public sealed class SteamFriendScraperTests
     }
 
     [Fact]
+    public void IsLoginGate_detects_sign_in_title()
+    {
+        // Live capture from 2026-05-19: anonymous request to /profiles/<id>/myworkshopfiles
+        // with ?browsefilter=mysubscriptions on a profile we're not a friend of gets redirected
+        // to a generic "Steam Community :: Error" page that asks the user to sign in.
+        var html = ReadFixture("login_gate.html");
+        Assert.True(SteamFriendScraper.IsLoginGate(html));
+    }
+
+    [Fact]
+    public void IsLoginGate_false_for_real_subscriptions_page()
+    {
+        var html = ReadFixture("mysubscriptions_page1.html");
+        Assert.False(SteamFriendScraper.IsLoginGate(html));
+    }
+
+    [Fact]
+    public async Task FetchAsync_returns_LoginRequired_when_response_is_login_gate()
+    {
+        var pages = new Dictionary<int, string>
+        {
+            { 1, ReadFixture("login_gate.html") },
+        };
+        var handler = new PagedHandler(pages);
+        var scraper = new SteamFriendScraper(new HttpClient(handler));
+
+        var result = await scraper.FetchAsync("76561197960287930");
+
+        Assert.Equal(FriendScrapeAuthState.LoginRequired, result.AuthState);
+        Assert.Empty(result.Mods);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Steam", result.Error);
+        Assert.Equal(1, result.PagesFetched);
+    }
+
+    [Fact]
+    public async Task FetchAsync_sends_cookie_header_when_cookies_supplied()
+    {
+        var pages = new Dictionary<int, string>
+        {
+            { 1, ReadFixture("mysubscriptions_page1.html") },
+        };
+        var handler = new HeaderCapturingPagedHandler(pages);
+        var cookies = new SteamSessionCookies("eyJhbGciOiJ...JWT...", "abc123sessionid");
+        var scraper = new SteamFriendScraper(new HttpClient(handler), cookies);
+
+        var result = await scraper.FetchAsync("76561197960287930");
+
+        Assert.Equal(3, result.Mods.Count);
+        Assert.NotEmpty(handler.CookieHeaders);
+        var cookieHeader = handler.CookieHeaders[0];
+        Assert.Contains("sessionid=abc123sessionid", cookieHeader);
+        Assert.Contains("steamLoginSecure=eyJhbGciOiJ...JWT...", cookieHeader);
+        // User-Agent is set per-request (not on the shared HttpClient).
+        Assert.Contains(handler.UserAgents, ua => ua.Contains("Mozilla/5.0"));
+    }
+
+    [Fact]
+    public async Task FetchAsync_omits_cookie_header_when_no_cookies()
+    {
+        var pages = new Dictionary<int, string>
+        {
+            { 1, ReadFixture("mysubscriptions_page1.html") },
+        };
+        var handler = new HeaderCapturingPagedHandler(pages);
+        var scraper = new SteamFriendScraper(new HttpClient(handler), cookies: null);
+
+        await scraper.FetchAsync("76561197960287930");
+
+        Assert.Empty(handler.CookieHeaders); // no Cookie header attached
+    }
+
+    /// <summary>Like <see cref="PagedHandler"/> but also captures Cookie and User-Agent
+    /// headers off each request so tests can assert what we actually sent on the wire.</summary>
+    private sealed class HeaderCapturingPagedHandler : HttpMessageHandler
+    {
+        private readonly Dictionary<int, string> _pages;
+        public List<string> CookieHeaders { get; } = new();
+        public List<string> UserAgents    { get; } = new();
+
+        public HeaderCapturingPagedHandler(Dictionary<int, string> pages) { _pages = pages; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (request.Headers.TryGetValues("Cookie", out var cookieVals))
+                CookieHeaders.AddRange(cookieVals);
+            if (request.Headers.TryGetValues("User-Agent", out var uaVals))
+                UserAgents.AddRange(uaVals);
+
+            var query = System.Web.HttpUtility.ParseQueryString(request.RequestUri!.Query);
+            var page = int.TryParse(query["p"], out var p) ? p : 1;
+            if (!_pages.TryGetValue(page, out var body))
+                body = ReadFixture("mysubscriptions_empty.html");
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body),
+                RequestMessage = request,
+            });
+        }
+    }
+
+    [Fact]
     public async Task FetchAsync_dedupes_repeated_ids_across_pages()
     {
         var sameHtml = ReadFixture("mysubscriptions_page1.html");

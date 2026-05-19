@@ -71,6 +71,33 @@ public sealed class ModRowViewModel : INotifyPropertyChanged
     public int NumChildren => _entry.NumChildren;
     public string WorkshopUrl => $"https://steamcommunity.com/sharedfiles/filedetails/?id={_entry.Id}";
 
+    // Local install state. Populated by MainWindow at row creation time:
+    //   "Downloaded" — appworkshop_552500.acf has the item on disk
+    //   "Pending"    — Steam is subscribed (per <appid>_subscriptions.vdf) but hasn't finished
+    //                  pulling the bundle yet; the mod will fail to load until Steam catches up
+    //   ""           — unknown (Steam couldn't be resolved, or this is a virtual friend-ghost row)
+    // The Mods grid surfaces this in its own column so users notice queued downloads instead of
+    // assuming a "missing" mod has been unsubscribed.
+    private string _localState = "";
+    public string LocalState
+    {
+        get => _localState;
+        set
+        {
+            if (_localState == value) return;
+            _localState = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(LocalStateTooltip));
+        }
+    }
+    public string LocalStateTooltip => LocalState switch
+    {
+        "Downloaded" => "Steam has this mod's bundle on disk.",
+        "Pending"    => "Steam is subscribed to this mod but the bundle hasn't finished downloading. "
+                      + "Launch Steam and let it catch up, or check Steam's Downloads pane.",
+        _            => "",
+    };
+
     // Workshop-state columns, populated by "Refresh from Workshop". Empty until then.
     private WorkshopItemLocal? _local;
     private WorkshopItemRemote? _remote;

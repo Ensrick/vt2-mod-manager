@@ -77,25 +77,25 @@ public partial class MainWindow : Window
     {
         try
         {
-            var (block, ids) = await System.Threading.Tasks.Task.Run(() =>
+            var (block, resolved) = await System.Threading.Tasks.Task.Run(() =>
             {
                 try
                 {
                     var locator = new UserSettingsConfigLocator(_settings);
                     var p = locator.Resolve();
-                    if (!System.IO.File.Exists(p)) return ((ModListBlock?)null, (HashSet<string>?)null);
+                    if (!System.IO.File.Exists(p)) return ((ModListBlock?)null, default(ResolvedLocalIds));
                     var b = _reader.ReadFile(p);
-                    HashSet<string>? i = null;
-                    try { i = ResolveInstalledIdsCore(_settings); } catch { }
-                    return ((ModListBlock?)b, i);
+                    ResolvedLocalIds r = default;
+                    try { r = ResolveInstalledIdsCore(_settings); } catch { }
+                    return ((ModListBlock?)b, r);
                 }
-                catch { return ((ModListBlock?)null, (HashSet<string>?)null); }
+                catch { return ((ModListBlock?)null, default(ResolvedLocalIds)); }
             });
             if (block is null) return;
             // Detect actual change before clobbering the grid (avoids needless re-render churn).
             if (BlockSemanticallyEquals(_block!, block)) return;
             _block = block;
-            RebuildModRowsFromBlock(ids);
+            RebuildModRowsFromBlock(resolved);
             SetStatus("Re-synced from user_settings.config (external change detected).");
         }
         catch { /* best effort */ }
@@ -144,15 +144,15 @@ public partial class MainWindow : Window
                 {
                     var locator = new UserSettingsConfigLocator(_settings);
                     var p = locator.Resolve();
-                    if (!System.IO.File.Exists(p)) return (Path: p, Block: (ModListBlock?)null, Ids: (HashSet<string>?)null, Err: (string?)null);
+                    if (!System.IO.File.Exists(p)) return (Path: p, Block: (ModListBlock?)null, Resolved: default(ResolvedLocalIds), Err: (string?)null);
                     var b = _reader.ReadFile(p);
-                    HashSet<string>? ids = null;
-                    try { ids = ResolveInstalledIdsCore(_settings); } catch { /* swallow; we'll just not filter */ }
-                    return (Path: p, Block: (ModListBlock?)b, Ids: ids, Err: (string?)null);
+                    ResolvedLocalIds r = default;
+                    try { r = ResolveInstalledIdsCore(_settings); } catch { /* swallow; we'll just not filter */ }
+                    return (Path: p, Block: (ModListBlock?)b, Resolved: r, Err: (string?)null);
                 }
                 catch (Exception ex)
                 {
-                    return (Path: "(unknown)", Block: (ModListBlock?)null, Ids: (HashSet<string>?)null, Err: (string?)ex.Message);
+                    return (Path: "(unknown)", Block: (ModListBlock?)null, Resolved: default(ResolvedLocalIds), Err: (string?)ex.Message);
                 }
             });
 
@@ -167,11 +167,15 @@ public partial class MainWindow : Window
             else
             {
                 _block = modLoad.Block;
-                RebuildModRowsFromBlock(modLoad.Ids);
-                var hidden = modLoad.Ids is null ? 0 : _block.Entries.Count - _mods.Count;
-                SetStatus(hidden > 0
-                    ? $"Loaded {_mods.Count} subscribed mods ({hidden} unsubscribed hidden)."
-                    : $"Loaded {_mods.Count} mods.");
+                RebuildModRowsFromBlock(modLoad.Resolved);
+                var visibleCount = _mods.Count;
+                var pendingCount = _mods.Count(m => m.LocalState == "Pending");
+                var hidden = modLoad.Resolved.Filter is null ? 0 : _block.Entries.Count - visibleCount;
+                var msg = pendingCount > 0
+                    ? $"Loaded {visibleCount} subscribed mods ({pendingCount} pending download)"
+                    : $"Loaded {visibleCount} mods";
+                if (hidden > 0) msg += $", {hidden} unsubscribed hidden";
+                SetStatus(msg + ".");
             }
 
             // Stage 2: profiles dir listing — fast, but still don't block in case it's slow.
@@ -213,49 +217,105 @@ public partial class MainWindow : Window
         }
 
         _block = _reader.ReadFile(path);
-        var installedIds = ResolveInstalledIds();
-        RebuildModRowsFromBlock(installedIds);
+        var resolved = ResolveInstalledIds();
+        RebuildModRowsFromBlock(resolved);
 
-        var hidden = installedIds is null ? 0 : _block.Entries.Count - _mods.Count;
-        SetStatus(hidden > 0
-            ? $"Loaded {_mods.Count} subscribed mods ({hidden} unsubscribed entries hidden) from {path}."
-            : $"Loaded {_mods.Count} mods from {path}.");
+        var visibleCount = _mods.Count;
+        var pendingCount = _mods.Count(m => m.LocalState == "Pending");
+        var hidden = resolved.Filter is null ? 0 : _block.Entries.Count - visibleCount;
+        var msg = pendingCount > 0
+            ? $"Loaded {visibleCount} subscribed mods ({pendingCount} pending download)"
+            : $"Loaded {visibleCount} mods";
+        if (hidden > 0) msg += $", {hidden} unsubscribed entries hidden";
+        SetStatus(msg + $" from {path}.");
+    }
+
+    /// <summary>
+    /// Resolved view of "what's the user's mod set locally" for the Mods tab. Three states:
+    ///   <list type="bullet">
+    ///     <item><c>Filter</c> = null → couldn't resolve Steam at all; show every entry in user_settings.config.</item>
+    ///     <item><c>Filter</c> ⊇ <c>Downloaded</c> ⊇ items currently on disk per appworkshop_552500.acf.</item>
+    ///     <item><c>Filter</c> ⊇ items subscribed per &lt;appid&gt;_subscriptions.vdf, including pending downloads.</item>
+    ///   </list>
+    /// A row whose ID is in <c>Filter</c> but NOT in <c>Downloaded</c> is "Pending" — subscribed but
+    /// Steam hasn't finished pulling the bundle yet.
+    /// </summary>
+    private readonly struct ResolvedLocalIds
+    {
+        public HashSet<string>? Filter { get; init; }
+        public HashSet<string>? Downloaded { get; init; }
     }
 
     /// <summary>Rebuild the visible mod-row collection from <c>_block.Entries</c>, filtering out
-    /// entries Steam doesn't have currently installed. Phantom entries stay in <c>_block</c>.</summary>
-    private void RebuildModRowsFromBlock(HashSet<string>? installedIds = null)
+    /// entries that Steam neither has installed nor reports as subscribed. Phantom entries stay
+    /// in <c>_block</c>. Sets each row's <see cref="ModRowViewModel.LocalState"/> based on whether
+    /// the bundle is on disk yet.</summary>
+    private void RebuildModRowsFromBlock(ResolvedLocalIds? resolvedOpt = null)
     {
         if (_block is null) return;
-        installedIds ??= ResolveInstalledIds();
+        var resolved = resolvedOpt ?? ResolveInstalledIds();
         foreach (var r in _mods) r.PropertyChanged -= OnModRowPropertyChanged;
         _mods.Clear();
         int order = 0;
         foreach (var entry in _block.Entries)
         {
-            if (installedIds is not null && !installedIds.Contains(entry.Id)) continue;
-            _mods.Add(new ModRowViewModel(entry, ++order));
+            if (resolved.Filter is not null && !resolved.Filter.Contains(entry.Id)) continue;
+            var row = new ModRowViewModel(entry, ++order);
+            if (resolved.Downloaded is not null)
+                row.LocalState = resolved.Downloaded.Contains(entry.Id) ? "Downloaded" : "Pending";
+            _mods.Add(row);
         }
         WireRowAutoSave();
     }
 
-    /// <summary>Returns the set of Workshop IDs Steam currently reports as installed for VT2,
-    /// or null if we couldn't resolve the Steam library (in which case we don't filter).</summary>
-    private HashSet<string>? ResolveInstalledIds() => ResolveInstalledIdsCore(_settings);
+    /// <summary>Returns the union of "downloaded per ACF" and "subscribed per ugc vdf", plus the
+    /// downloaded subset so callers can label pending rows. <c>Filter</c> is null when we can't
+    /// resolve Steam at all (no filtering applied).</summary>
+    private ResolvedLocalIds ResolveInstalledIds() => ResolveInstalledIdsCore(_settings);
 
-    private static HashSet<string>? ResolveInstalledIdsCore(Settings settings)
+    private static ResolvedLocalIds ResolveInstalledIdsCore(Settings settings)
     {
         try
         {
             var resolver = new SteamPathResolver(settings);
-            if (!resolver.TryResolve(out var steamRoot)) return null;
+            if (!resolver.TryResolve(out var steamRoot)) return default;
             var libs = new LibraryFoldersResolver().Resolve(steamRoot);
-            var ids = new HashSet<string>(StringComparer.Ordinal);
+
+            // Downloaded set — items Steam has actually pulled to disk.
+            var downloaded = new HashSet<string>(StringComparer.Ordinal);
             foreach (var item in new WorkshopEnumerator().EnumerateForApp(libs, Vt2Installation.AppId))
-                ids.Add(item.PublishedFileId.ToString());
-            return ids.Count == 0 ? null : ids;
+                downloaded.Add(item.PublishedFileId.ToString());
+
+            // Subscribed set — includes downloads in progress. Empty when Steam has never
+            // opened the Workshop for this user/app, in which case we fall back to ACF only.
+            HashSet<string>? subscribed = null;
+            try
+            {
+                var subs = new SteamSubscriptionsResolver(steamRoot)
+                    .ResolveSubscribedIds(Vt2Installation.AppId);
+                if (subs.Count > 0)
+                    subscribed = new HashSet<string>(subs, StringComparer.Ordinal);
+            }
+            catch { /* fall back to ACF-only */ }
+
+            // Union: show anything that's either downloaded OR known-subscribed.
+            HashSet<string>? filter;
+            if (subscribed is null)
+                filter = downloaded.Count == 0 ? null : downloaded;
+            else
+            {
+                filter = new HashSet<string>(downloaded, StringComparer.Ordinal);
+                filter.UnionWith(subscribed);
+                if (filter.Count == 0) filter = null;
+            }
+
+            return new ResolvedLocalIds
+            {
+                Filter     = filter,
+                Downloaded = downloaded.Count == 0 ? null : downloaded,
+            };
         }
-        catch { return null; }
+        catch { return default; }
     }
 
     private void WireRowAutoSave()

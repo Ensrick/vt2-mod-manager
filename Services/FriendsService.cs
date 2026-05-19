@@ -19,17 +19,35 @@ public sealed class FriendsService
 {
     private readonly FriendsStore _store;
     private readonly SteamIdResolver _resolver;
-    private readonly SteamFriendScraper _scraper;
     private readonly SteamProfileXmlClient _xmlClient;
+    private readonly HttpClient _http;
+    private readonly Func<SteamSessionCookies?> _cookieProvider;
     private readonly ConcurrentDictionary<string, FriendSubscriptionResult> _sessionCache = new(StringComparer.Ordinal);
 
-    public FriendsService(HttpClient http, FriendsStore? store = null)
+    public FriendsService(HttpClient http, FriendsStore? store = null, Func<SteamSessionCookies?>? cookieProvider = null)
     {
         _store = store ?? new FriendsStore();
+        _http = http;
         _resolver = new SteamIdResolver(http);
-        _scraper = new SteamFriendScraper(http);
         _xmlClient = new SteamProfileXmlClient(http);
+        // Default: read live Steam CEF cookies each call. Subscriptions pages now require an
+        // authenticated session (verified live 2026-05-19) — Steam serves a Sign-In interstitial
+        // to anonymous clients even for fully Public profiles. The cookie provider is invoked
+        // per scrape so the user toggling Steam login state is reflected without a restart.
+        _cookieProvider = cookieProvider ?? DefaultCookieProvider;
     }
+
+    private static SteamSessionCookies? DefaultCookieProvider()
+    {
+        try
+        {
+            var r = new SteamCefCookieReader().Read();
+            return r.Outcome == SteamCefCookieOutcome.Ok ? r.Cookies : null;
+        }
+        catch { return null; }
+    }
+
+    private SteamFriendScraper BuildScraper() => new(_http, _cookieProvider());
 
     /// <summary>
     /// Auto-populate friends.json from Steam's local userdata. Newly-discovered friends are
@@ -106,7 +124,7 @@ public sealed class FriendsService
         var existing = friends.FirstOrDefault(f => f.SteamId64 == sid);
         if (existing is not null) return existing;
 
-        var fetch = await _scraper.FetchAsync(sid, ct: ct).ConfigureAwait(false);
+        var fetch = await BuildScraper().FetchAsync(sid, ct: ct).ConfigureAwait(false);
         _sessionCache[sid] = fetch;
 
         var friend = new Friend
@@ -175,7 +193,7 @@ public sealed class FriendsService
             return skipped;
         }
 
-        var fetch = await _scraper.FetchAsync(steamId64, ct: ct).ConfigureAwait(false);
+        var fetch = await BuildScraper().FetchAsync(steamId64, ct: ct).ConfigureAwait(false);
         // Promote the XML-reported visibility into the cache when the scraper couldn't classify
         // it (e.g. friends-only profile that scrape succeeded for, but heuristic missed).
         if (probe is not null && fetch.Visibility == ProfileVisibility.Unknown)

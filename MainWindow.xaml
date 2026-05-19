@@ -247,6 +247,14 @@
                             <DataGridTextColumn Header="Name"     Binding="{Binding Name}"        Width="3*"  IsReadOnly="True" />
                             <DataGridTextColumn Header="Author"   Binding="{Binding Author}"      Width="160" IsReadOnly="True" />
                             <DataGridTextColumn Header="Status"   Binding="{Binding Status}"      Width="120" IsReadOnly="True" />
+                            <DataGridTemplateColumn Header="Local" Width="90">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding LocalState}" ToolTip="{Binding LocalStateTooltip}"
+                                                   HorizontalAlignment="Center" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
                             <DataGridTextColumn Header="Updated"  Binding="{Binding LastUpdated}" Width="180" IsReadOnly="True" />
                             <DataGridTextColumn Header="Size"     Binding="{Binding LocalSizeText}" Width="90" IsReadOnly="True" />
                             <DataGridTemplateColumn Header="Size?" Width="56">

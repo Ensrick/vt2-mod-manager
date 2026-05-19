@@ -4,6 +4,15 @@ All notable changes to vt2-mod-manager. Versioning follows [SemVer](https://semv
 
 ## [Unreleased]
 
+## [0.1.10]
+
+### Fixed
+- **Friend subscriptions returned zero mods even for friends with public Workshop pages.** Steam now requires an authenticated session to render any other user's `?browsefilter=mysubscriptions` page — anonymous requests get redirected to a login interstitial (HTML `<title>Sign In</title>`), regardless of whether the target profile is Public, Friends-only, or Private. `SteamFriendScraper` now reads live Steam session cookies via `SteamCefCookieReader` and attaches them as a per-request `Cookie` header (mirroring the `SteamSubscribeClient` pattern). The login interstitial is detected explicitly and surfaces a clear `AuthState = LoginRequired` outcome with a "Open Steam and sign in" hint rather than silently showing 0 mods.
+- **Subscribed-but-not-yet-downloaded mods were being filtered out** as if they didn't exist. The phantom filter was using `appworkshop_552500.acf` which only tracks downloaded items. We now also read `<SteamRoot>/userdata/<accountid32>/ugc/552500_subscriptions.vdf` (Steam's authoritative per-app subscription list) and union the two sets. Pending downloads show with `LocalState = "Pending"` and a tooltip telling the user Steam hasn't finished the bundle yet.
+
+### Added
+- New **Local** column on the Mods grid: `Downloaded` (bundle on disk) / `Pending` (subscribed but Steam still fetching) / empty for friend-ghost rows. Hover for tooltip.
+
 ## [0.1.9]
 
 ### Added
