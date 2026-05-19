@@ -4,6 +4,13 @@ All notable changes to vt2-mod-manager. Versioning follows [SemVer](https://semv
 
 ## [Unreleased]
 
+## [0.1.9]
+
+### Added
+- **Bi-directional sync with the Fatshark launcher.** Changes made in either tool are now reflected in the other:
+  - **Re-read on window activate.** When you bring vt2-mod-manager back to focus (alt-tab, click), it re-reads `user_settings.config` if there are no unsaved changes. Anything the Fatshark launcher wrote while you were away appears immediately. Throttled to ~once per 2 seconds.
+  - **3-way merge on save.** Every save now re-reads the latest file from disk and overlays our changes on top of it before writing. Mods toggled or reordered in the launcher between our reads survive — we no longer clobber the file with stale state.
+
 ## [0.1.8]
 
 ### Fixed

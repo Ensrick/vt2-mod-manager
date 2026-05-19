@@ -53,6 +53,66 @@ public partial class MainWindow : Window
             await InitialLoadAsync();
             if (!Program.IsDevBuild()) _ = CheckForUpdatesAsync();
         };
+        // Bi-directional sync with the Fatshark launcher: when our window gets focus, re-read
+        // user_settings.config so anything the launcher wrote while we were backgrounded shows
+        // up immediately. Skipped if we have unsaved changes — those would otherwise be lost.
+        Activated += (_, _) => OnWindowActivated();
+    }
+
+    private DateTime _lastActivatedRefreshUtc = DateTime.MinValue;
+
+    private void OnWindowActivated()
+    {
+        // Activated fires for every focus event, including alt-tab back to a still-open window.
+        // Throttle so we don't re-parse a 1MB config on every focus, but still pick up external
+        // changes within a few seconds of switching back.
+        if (DateTime.UtcNow - _lastActivatedRefreshUtc < TimeSpan.FromSeconds(2)) return;
+        if (_autoSaveTimer is { IsEnabled: true }) return;          // pending unsaved changes — don't clobber
+        if (_block is null) return;                                 // not yet loaded
+        _lastActivatedRefreshUtc = DateTime.UtcNow;
+        _ = RefreshFromDiskAsync();
+    }
+
+    private async System.Threading.Tasks.Task RefreshFromDiskAsync()
+    {
+        try
+        {
+            var (block, ids) = await System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    var locator = new UserSettingsConfigLocator(_settings);
+                    var p = locator.Resolve();
+                    if (!System.IO.File.Exists(p)) return ((ModListBlock?)null, (HashSet<string>?)null);
+                    var b = _reader.ReadFile(p);
+                    HashSet<string>? i = null;
+                    try { i = ResolveInstalledIdsCore(_settings); } catch { }
+                    return ((ModListBlock?)b, i);
+                }
+                catch { return ((ModListBlock?)null, (HashSet<string>?)null); }
+            });
+            if (block is null) return;
+            // Detect actual change before clobbering the grid (avoids needless re-render churn).
+            if (BlockSemanticallyEquals(_block!, block)) return;
+            _block = block;
+            RebuildModRowsFromBlock(ids);
+            SetStatus("Re-synced from user_settings.config (external change detected).");
+        }
+        catch { /* best effort */ }
+    }
+
+    /// <summary>Cheap structural equality on the parts a user can flip from another tool:
+    /// the set of mod IDs, their order, and each Enabled flag. Other fields (timestamps, banners)
+    /// aren't user-meaningful for our sync purposes.</summary>
+    private static bool BlockSemanticallyEquals(ModListBlock a, ModListBlock b)
+    {
+        if (a.Entries.Count != b.Entries.Count) return false;
+        for (int i = 0; i < a.Entries.Count; i++)
+        {
+            if (a.Entries[i].Id != b.Entries[i].Id) return false;
+            if (a.Entries[i].Enabled != b.Entries[i].Enabled) return false;
+        }
+        return true;
     }
 
     private static HttpClient BuildUpdateHttpClient()
@@ -238,13 +298,84 @@ public partial class MainWindow : Window
         try
         {
             var locator = new UserSettingsConfigLocator(_settings);
-            _writer.WriteFile(locator.Resolve(), _block);
-            SetStatus($"Saved {_block.Entries.Count} mods. Backup at user_settings.config.bak.");
+            var path = locator.Resolve();
+
+            // Bi-directional sync with the Fatshark launcher: pull the LATEST file from disk
+            // immediately before writing, overlay our changes on top of it, then write the merged
+            // result. Anything the launcher added or modified while our app was open survives.
+            ModListBlock target = _block;
+            try
+            {
+                if (System.IO.File.Exists(path))
+                {
+                    var latest = _reader.ReadFile(path);
+                    target = MergeOurStateOnto(latest, _block);
+                }
+            }
+            catch
+            {
+                // Disk read failed (locked / corrupt) — fall back to writing our state verbatim.
+                target = _block;
+            }
+
+            _writer.WriteFile(path, target);
+            _block = target; // adopt the merged state so subsequent operations stay in sync
+            SetStatus($"Saved {target.Entries.Count} mods. Backup at user_settings.config.bak.");
         }
         catch (Exception ex)
         {
             SetStatus("Auto-save failed: " + ex.Message);
         }
+    }
+
+    /// <summary>
+    /// 3-way merge: <paramref name="latest"/> is what's on disk right now (may include changes
+    /// the Fatshark launcher made while we were running); <paramref name="ours"/> is our
+    /// in-memory state with the user's toggles + reorders. Returns a new <see cref="ModListBlock"/>
+    /// keyed on the disk file's prefix/suffix that:
+    ///   - Uses our order for mods we know about.
+    ///   - Applies our Enabled flag to mods in both.
+    ///   - Preserves any mod in <paramref name="latest"/> that we didn't see (the launcher added
+    ///     it after we last read) — appended at the end in its original relative order.
+    /// </summary>
+    private static ModListBlock MergeOurStateOnto(ModListBlock latest, ModListBlock ours)
+    {
+        var latestById = latest.Entries.ToDictionary(e => e.Id, StringComparer.Ordinal);
+        var ourIdsSet  = new HashSet<string>(ours.Entries.Select(e => e.Id), StringComparer.Ordinal);
+
+        var merged = new List<ModEntry>(latest.Entries.Count);
+
+        // Walk OUR entries in order. For each, prefer the disk entry (so launcher-side field
+        // updates survive) but force-apply OUR enabled flag.
+        foreach (var ourEntry in ours.Entries)
+        {
+            if (latestById.TryGetValue(ourEntry.Id, out var diskEntry))
+            {
+                diskEntry.Enabled = ourEntry.Enabled;
+                merged.Add(diskEntry);
+            }
+            else
+            {
+                // Mod exists in our memory but not on disk — Fatshark may have removed it after
+                // we read it. Re-introduce so the user doesn't lose their toggle state.
+                merged.Add(ourEntry);
+            }
+        }
+
+        // Append anything on disk we hadn't seen — newly added by the launcher.
+        foreach (var diskEntry in latest.Entries)
+        {
+            if (!ourIdsSet.Contains(diskEntry.Id))
+                merged.Add(diskEntry);
+        }
+
+        return new ModListBlock
+        {
+            RawPrefix  = latest.RawPrefix,
+            RawSuffix  = latest.RawSuffix,
+            LineEnding = latest.LineEnding,
+            Entries    = merged,
+        };
     }
 
     private void ReloadProfiles()
