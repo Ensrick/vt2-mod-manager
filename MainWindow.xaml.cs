@@ -21,6 +21,7 @@ public partial class MainWindow : Window
     private Settings _settings = new();
     private ModListBlock? _block;
     private readonly ObservableCollection<ModRowViewModel> _mods = new();
+    private System.Windows.Threading.DispatcherTimer? _autoSaveTimer;
     private readonly ObservableCollection<ProfileRowViewModel> _profiles = new();
     private readonly ObservableCollection<ConflictRowViewModel> _conflicts = new();
     private FriendsService? _friendsService;
@@ -95,11 +96,96 @@ public partial class MainWindow : Window
         }
 
         _block = _reader.ReadFile(path);
-        _mods.Clear();
-        for (int i = 0; i < _block.Entries.Count; i++)
-            _mods.Add(new ModRowViewModel(_block.Entries[i], i + 1));
+        var installedIds = ResolveInstalledIds();
+        RebuildModRowsFromBlock(installedIds);
 
-        SetStatus($"Loaded {_mods.Count} mods from {path}.");
+        var hidden = installedIds is null ? 0 : _block.Entries.Count - _mods.Count;
+        SetStatus(hidden > 0
+            ? $"Loaded {_mods.Count} subscribed mods ({hidden} unsubscribed entries hidden) from {path}."
+            : $"Loaded {_mods.Count} mods from {path}.");
+    }
+
+    /// <summary>Rebuild the visible mod-row collection from <c>_block.Entries</c>, filtering out
+    /// entries Steam doesn't have currently installed. Phantom entries stay in <c>_block</c>.</summary>
+    private void RebuildModRowsFromBlock(HashSet<string>? installedIds = null)
+    {
+        if (_block is null) return;
+        installedIds ??= ResolveInstalledIds();
+        foreach (var r in _mods) r.PropertyChanged -= OnModRowPropertyChanged;
+        _mods.Clear();
+        int order = 0;
+        foreach (var entry in _block.Entries)
+        {
+            if (installedIds is not null && !installedIds.Contains(entry.Id)) continue;
+            _mods.Add(new ModRowViewModel(entry, ++order));
+        }
+        WireRowAutoSave();
+    }
+
+    /// <summary>Returns the set of Workshop IDs Steam currently reports as installed for VT2,
+    /// or null if we couldn't resolve the Steam library (in which case we don't filter).</summary>
+    private HashSet<string>? ResolveInstalledIds()
+    {
+        try
+        {
+            var resolver = new SteamPathResolver(_settings);
+            if (!resolver.TryResolve(out var steamRoot)) return null;
+            var libs = new LibraryFoldersResolver().Resolve(steamRoot);
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var item in new WorkshopEnumerator().EnumerateForApp(libs, Vt2Installation.AppId))
+                ids.Add(item.PublishedFileId.ToString());
+            return ids.Count == 0 ? null : ids;
+        }
+        catch { return null; }
+    }
+
+    private void WireRowAutoSave()
+    {
+        foreach (var row in _mods)
+        {
+            row.PropertyChanged -= OnModRowPropertyChanged;
+            row.PropertyChanged += OnModRowPropertyChanged;
+        }
+    }
+
+    private void OnModRowPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(ModRowViewModel.Enabled))
+            ScheduleAutoSave();
+    }
+
+    private void ScheduleAutoSave()
+    {
+        _autoSaveTimer ??= new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(750),
+        };
+        _autoSaveTimer.Stop();
+        _autoSaveTimer.Tick -= OnAutoSaveTick;
+        _autoSaveTimer.Tick += OnAutoSaveTick;
+        _autoSaveTimer.Start();
+        SetStatus("Pending save…");
+    }
+
+    private void OnAutoSaveTick(object? sender, EventArgs e)
+    {
+        _autoSaveTimer?.Stop();
+        SaveBlockNow();
+    }
+
+    private void SaveBlockNow()
+    {
+        if (_block is null) return;
+        try
+        {
+            var locator = new UserSettingsConfigLocator(_settings);
+            _writer.WriteFile(locator.Resolve(), _block);
+            SetStatus($"Saved {_block.Entries.Count} mods. Backup at user_settings.config.bak.");
+        }
+        catch (Exception ex)
+        {
+            SetStatus("Auto-save failed: " + ex.Message);
+        }
     }
 
     private void ReloadProfiles()
@@ -121,18 +207,8 @@ public partial class MainWindow : Window
     private void OnSaveClicked(object sender, RoutedEventArgs e)
     {
         if (_block is null) { SetStatus("Nothing loaded."); return; }
-        try
-        {
-            // The underlying ModEntry list inside _block was reordered in-place by Move*; just write.
-            var locator = new UserSettingsConfigLocator(_settings);
-            _writer.WriteFile(locator.Resolve(), _block);
-            SetStatus($"Saved {_block.Entries.Count} mods. Backup at user_settings.config.bak.");
-        }
-        catch (Exception ex)
-        {
-            SetStatus("Save failed: " + ex.Message);
-            MessageBox.Show(this, ex.Message, "Save failed", MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
+        _autoSaveTimer?.Stop();
+        SaveBlockNow();
     }
 
     private void OnEnableAllClicked(object sender, RoutedEventArgs e)
@@ -151,6 +227,12 @@ public partial class MainWindow : Window
     {
         try
         {
+            // Flush any pending debounced save so the game reads our latest changes.
+            if (_autoSaveTimer is { IsEnabled: true })
+            {
+                _autoSaveTimer.Stop();
+                SaveBlockNow();
+            }
             var pathResolver = new SteamPathResolver(_settings);
             if (!pathResolver.TryResolve(out var steamRoot)) { SetStatus("Could not locate Steam install."); return; }
             var libs = new LibraryFoldersResolver().Resolve(steamRoot);
@@ -317,10 +399,9 @@ public partial class MainWindow : Window
         var result = new LoadOrderSorter().Sort(_block.Entries, rules);
         _block.Entries.Clear();
         _block.Entries.AddRange(result.Sorted);
-        _mods.Clear();
-        for (int i = 0; i < _block.Entries.Count; i++)
-            _mods.Add(new ModRowViewModel(_block.Entries[i], i + 1));
-        var msg = $"Auto-sorted (unsaved). Rules at {LoadOrderRules.DefaultPath()}.";
+        RebuildModRowsFromBlock();
+        ScheduleAutoSave();
+        var msg = $"Auto-sorted. Rules at {LoadOrderRules.DefaultPath()}.";
         if (result.CycleMemberIds.Count > 0)
             msg += $" Cycle warning: {result.CycleMemberIds.Count} mod(s).";
         if (result.UnknownPinIds.Count > 0)
@@ -382,14 +463,29 @@ public partial class MainWindow : Window
     private void SyncBlockOrderFromUi()
     {
         if (_block is null) return;
+        // Preserve any phantom entries (subscribed-then-unsubscribed mods that we hide in the
+        // grid but keep in _block so Steam-resub restores their settings). They go at the end
+        // in their original relative order so the visible-mod order is what the engine sees.
+        var visibleEntries = _mods.Where(m => !m.IsVirtual).Select(m => m.Entry).ToList();
+        var visibleSet = new HashSet<ModEntry>(visibleEntries);
+        var phantoms = _block.Entries.Where(e => !visibleSet.Contains(e)).ToList();
+
         _block.Entries.Clear();
         var order = 0;
+        foreach (var entry in visibleEntries)
+        {
+            _block.Entries.Add(entry);
+            order++;
+        }
         for (int i = 0; i < _mods.Count; i++)
         {
             if (_mods[i].IsVirtual) { _mods[i].Order = 0; continue; }
-            _mods[i].Order = ++order;
-            _block.Entries.Add(_mods[i].Entry);
+            _mods[i].Order = i + 1; // 1-based among visible rows
         }
+        // Re-append phantoms verbatim so their settings survive a Steam re-sub.
+        foreach (var p in phantoms) _block.Entries.Add(p);
+
+        ScheduleAutoSave();
     }
 
     // ---------- Profiles ----------
@@ -411,11 +507,9 @@ public partial class MainWindow : Window
         if (_block is null) { SetStatus("Load mods first."); return; }
         if (ProfilesGrid.SelectedItem is not ProfileRowViewModel row) { SetStatus("Pick a profile."); return; }
         var result = ProfileStore.Apply(row.Profile, _block);
-        // Refresh the mods grid from the (now-reordered) block.
-        _mods.Clear();
-        for (int i = 0; i < _block.Entries.Count; i++)
-            _mods.Add(new ModRowViewModel(_block.Entries[i], i + 1));
-        SetStatus($"Applied '{row.Name}': {result.ToggledCount} toggled, {result.Missing.Count} missing, {result.Extras.Count} extras appended. Click Save to commit.");
+        RebuildModRowsFromBlock();
+        ScheduleAutoSave();
+        SetStatus($"Applied '{row.Name}': {result.ToggledCount} toggled, {result.Missing.Count} missing, {result.Extras.Count} extras appended.");
     }
 
     private void OnDeleteProfileClicked(object sender, RoutedEventArgs e)

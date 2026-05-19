@@ -9,7 +9,7 @@ namespace Vt2ModManager;
 
 public static class Program
 {
-    public const string Version = "0.1.6";
+    public const string Version = "0.1.7";
 
     [STAThread]
     public static int Main(string[] args)

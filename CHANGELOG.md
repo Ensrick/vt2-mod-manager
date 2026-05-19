@@ -4,6 +4,16 @@ All notable changes to vt2-mod-manager. Versioning follows [SemVer](https://semv
 
 ## [Unreleased]
 
+## [0.1.7]
+
+### Fixed
+- **Mods list showed phantom entries** — items that lived in `user_settings.config`'s `mods` array but the user had since unsubscribed from. Now cross-referenced against `appworkshop_552500.acf` (Steam's authoritative installed-items record) and filtered out of the display. Phantom entries stay in the underlying block on save, so Steam re-subbing restores their previous enabled state.
+
+### Changed
+- **Toggling a mod's "On" checkbox now auto-saves** (debounced 750ms). No more "I ticked it but nothing happened" confusion. The explicit `Save` button still works and flushes the timer immediately.
+- Reorder operations (Move up/down/top/bottom), Auto-sort, and Apply profile all trigger the same debounced save.
+- `Launch VT2 (bypass launcher)` now flushes any pending debounced save before starting the game so the engine reads your latest toggle state.
+
 ## [0.1.6]
 
 ### Fixed
