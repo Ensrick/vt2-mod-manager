@@ -24,7 +24,7 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<ProfileRowViewModel> _profiles = new();
     private readonly ObservableCollection<ConflictRowViewModel> _conflicts = new();
     private FriendsService? _friendsService;
-    private FriendsWindow? _friendsWindow;
+    private readonly ObservableCollection<ViewModels.FriendRowViewModel> _friends = new();
 
     // Self-update wiring. The HttpClient is long-lived; the WPF process model means we'd
     // otherwise churn through ephemeral ports across repeated checks.
@@ -41,6 +41,7 @@ public partial class MainWindow : Window
         ModsGrid.ItemsSource = _mods;
         ProfilesGrid.ItemsSource = _profiles;
         ConflictsGrid.ItemsSource = _conflicts;
+        FriendsGrid.ItemsSource = _friends;
 
         _updateChecker   = new UpdateChecker(_updateHttp);
         _updateInstaller = new UpdateInstaller(_updateHttp);
@@ -72,6 +73,7 @@ public partial class MainWindow : Window
             // friend columns from cache and kick a background XML+scrape refresh so live state
             // replaces cached values without blocking startup.
             TryAutoLoadSteamFriends();
+            ReloadFriends();
             SyncFriendColumns();
             _ = BackgroundRefreshFriendsAsync();
         }
@@ -579,18 +581,110 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnManageFriendsClicked(object sender, RoutedEventArgs e)
+    private void ReloadFriends()
     {
-        if (_friendsService is null) { SetStatus("Friends not initialized."); return; }
-        if (_friendsWindow is not null && _friendsWindow.IsLoaded)
+        if (_friendsService is null) return;
+        // Unsubscribe from prior rows before clearing so stale handlers don't fire.
+        foreach (var r in _friends) r.PropertyChanged -= OnFriendRowPropertyChanged;
+        _friends.Clear();
+        foreach (var f in _friendsService.List().OrderByDescending(f => f.Favorite).ThenBy(f => f.DisplayName, StringComparer.OrdinalIgnoreCase))
         {
-            _friendsWindow.Activate();
-            return;
+            var row = new ViewModels.FriendRowViewModel(f);
+            if (_friendsService.SessionCache.TryGetValue(f.SteamId64, out var cached))
+                row.AttachResult(cached);
+            row.PropertyChanged += OnFriendRowPropertyChanged;
+            _friends.Add(row);
         }
-        _friendsWindow = new FriendsWindow(_friendsService) { Owner = this };
-        _friendsWindow.FriendsChanged += (_, _) => SyncFriendColumns();
-        _friendsWindow.Closed += (_, _) => _friendsWindow = null;
-        _friendsWindow.Show();
+    }
+
+    private void OnFriendRowPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (_friendsService is null) return;
+        if (e.PropertyName == nameof(ViewModels.FriendRowViewModel.Favorite) && sender is ViewModels.FriendRowViewModel row)
+        {
+            try { _friendsService.SetFavorite(row.SteamId64, row.Favorite); } catch { }
+            SyncFriendColumns();
+        }
+    }
+
+    private async void OnAddFriendClicked(object sender, RoutedEventArgs e)
+    {
+        if (_friendsService is null) return;
+        var input = (AddFriendBox.Text ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(input)) { SetStatus("Type a SteamID64, vanity, or profile URL."); return; }
+        SetStatus($"Resolving '{input}'…");
+        try
+        {
+            var friend = await _friendsService.AddAsync(input);
+            if (friend is null) { SetStatus($"Couldn't resolve '{input}'."); return; }
+            AddFriendBox.Text = "";
+            ReloadFriends();
+            SyncFriendColumns();
+            SetStatus($"Added {friend.DisplayName} ({friend.SteamId64}). Toggle 'Show' to make them a column.");
+        }
+        catch (Exception ex) { SetStatus("Add failed: " + ex.Message); }
+    }
+
+    private void OnAddFriendKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Enter) OnAddFriendClicked(sender, new RoutedEventArgs());
+    }
+
+    private void OnRemoveFriendClicked(object sender, RoutedEventArgs e)
+    {
+        if (_friendsService is null) return;
+        if (FriendsGrid.SelectedItem is not ViewModels.FriendRowViewModel row) { SetStatus("Pick a friend."); return; }
+        var ok = MessageBox.Show(this, $"Remove {row.DisplayName} ({row.SteamId64})?", "Confirm", MessageBoxButton.OKCancel, MessageBoxImage.Question);
+        if (ok != MessageBoxResult.OK) return;
+        _friendsService.Remove(row.SteamId64);
+        ReloadFriends();
+        SyncFriendColumns();
+    }
+
+    private async void OnRefreshFriendClicked(object sender, RoutedEventArgs e)
+    {
+        if (_friendsService is null) return;
+        if (FriendsGrid.SelectedItem is not ViewModels.FriendRowViewModel row) { SetStatus("Pick a friend."); return; }
+        SetStatus($"Refreshing {row.DisplayName}…");
+        try
+        {
+            var result = await _friendsService.RefreshAsync(row.SteamId64);
+            row.AttachResult(result);
+            SyncFriendColumns();
+            SetStatus($"{row.DisplayName}: {result.Visibility}, {result.Mods.Count} mod(s).");
+        }
+        catch (Exception ex) { SetStatus("Refresh failed: " + ex.Message); }
+    }
+
+    private async void OnRefreshAllFriendsClicked(object sender, RoutedEventArgs e)
+    {
+        if (_friendsService is null) return;
+        SetStatus($"Refreshing {_friends.Count} friends…");
+        try
+        {
+            foreach (var row in _friends.ToList())
+            {
+                var result = await _friendsService.RefreshAsync(row.SteamId64);
+                row.AttachResult(result);
+            }
+            SyncFriendColumns();
+            SetStatus($"Refreshed {_friends.Count} friends.");
+        }
+        catch (Exception ex) { SetStatus("Refresh failed: " + ex.Message); }
+    }
+
+    private void OnRescanSteamRosterClicked(object sender, RoutedEventArgs e)
+    {
+        if (_friendsService is null) return;
+        try
+        {
+            var resolver = new SteamPathResolver(_settings);
+            if (!resolver.TryResolve(out var steamRoot)) { SetStatus("Steam install not found."); return; }
+            var added = _friendsService.SyncSteamRoster(steamRoot);
+            ReloadFriends();
+            SetStatus(added > 0 ? $"Discovered {added} new Steam friend(s)." : "No new Steam friends found.");
+        }
+        catch (Exception ex) { SetStatus("Re-scan failed: " + ex.Message); }
     }
 
     private async System.Threading.Tasks.Task BackgroundRefreshFriendsAsync()
@@ -598,16 +692,22 @@ public partial class MainWindow : Window
         if (_friendsService is null) return;
         try
         {
-            foreach (var friend in _friendsService.List())
+            foreach (var friend in _friendsService.List().Where(f => f.Favorite))
             {
                 await _friendsService.RefreshAsync(friend.SteamId64);
-                // Refresh columns incrementally as each friend lands.
-                await Dispatcher.InvokeAsync(SyncFriendColumns);
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    // Push the new SessionCache entry into the matching row so it shows live.
+                    var row = _friends.FirstOrDefault(r => r.SteamId64 == friend.SteamId64);
+                    if (row is not null && _friendsService.SessionCache.TryGetValue(friend.SteamId64, out var cached))
+                        row.AttachResult(cached);
+                    SyncFriendColumns();
+                });
             }
         }
         catch
         {
-            // Background best-effort. Don't surface — the user can hit "Manage friends" → "Refresh all" if needed.
+            // Background best-effort. User can manually refresh from the sidebar.
         }
     }
 

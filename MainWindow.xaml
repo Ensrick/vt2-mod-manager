@@ -162,36 +162,85 @@
             <!-- ========================= TAB 1: MODS ========================= -->
             <TabItem Header="Mods">
                 <Grid Margin="16">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="300" MinWidth="220" />
+                        <ColumnDefinition Width="6" />
+                        <ColumnDefinition Width="*" MinWidth="600" />
+                    </Grid.ColumnDefinitions>
 
-                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="Mods" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        <Button Content="Reload"        Style="{StaticResource SubtleButton}" Margin="16,0,0,0" Click="OnReloadClicked" />
-                        <Button Content="Move up"       Style="{StaticResource SubtleButton}" Click="OnMoveUpClicked" />
-                        <Button Content="Move down"     Style="{StaticResource SubtleButton}" Click="OnMoveDownClicked" />
-                        <Button Content="Move to top"   Style="{StaticResource SubtleButton}" Click="OnMoveTopClicked" />
-                        <Button Content="Move to bottom" Style="{StaticResource SubtleButton}" Click="OnMoveBottomClicked" />
-                        <Button Content="Enable all"    Style="{StaticResource SubtleButton}" Click="OnEnableAllClicked" />
-                        <Button Content="Disable all"   Style="{StaticResource SubtleButton}" Click="OnDisableAllClicked" />
-                        <Button Content="Auto-sort"     Style="{StaticResource SubtleButton}" Click="OnAutoSortClicked" />
-                        <Button Content="Refresh from Workshop" Style="{StaticResource SubtleButton}" Click="OnRefreshFromWorkshopClicked" />
-                        <Button Content="Manage friends" Style="{StaticResource SubtleButton}" Click="OnManageFriendsClicked" />
-                        <Button Content="Export collection" Style="{StaticResource SubtleButton}" Click="OnExportCollectionClicked" />
-                        <Button Content="Save"          Style="{StaticResource ActionButton}" Click="OnSaveClicked" />
-                    </StackPanel>
+                    <!-- ===== LEFT: friends sidebar ===== -->
+                    <Grid Grid.Column="0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
 
-                    <DockPanel Grid.Row="1" Margin="0,0,0,8">
-                        <TextBlock x:Name="ModsHint" DockPanel.Dock="Right" Foreground="#888" VerticalAlignment="Center"
-                                   Text="Close VT2 + launcher before saving. A .bak is kept." />
-                        <TextBlock Text="Filter:" Foreground="#888" VerticalAlignment="Center" Margin="0,0,8,0" />
-                        <TextBox x:Name="FilterBox" Width="320" TextChanged="OnFilterChanged" />
-                    </DockPanel>
+                        <TextBlock Grid.Row="0" Text="Friends" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
 
-                    <DataGrid Grid.Row="2" x:Name="ModsGrid" IsReadOnly="False" CanUserSortColumns="False">
+                        <DockPanel Grid.Row="1" Margin="0,0,0,4">
+                            <Button DockPanel.Dock="Right" Content="+"  Style="{StaticResource ActionButton}" Click="OnAddFriendClicked"
+                                    ToolTip="Add by SteamID64, vanity, or profile URL" />
+                            <TextBox x:Name="AddFriendBox" KeyDown="OnAddFriendKeyDown" ToolTip="SteamID64, vanity, or profile URL" />
+                        </DockPanel>
+
+                        <TextBlock Grid.Row="2" Foreground="#888" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6"
+                                   Text="Toggle 'Show' to add a friend as a column on the Mods grid. Steam friends auto-load from your client." />
+
+                        <DataGrid Grid.Row="3" x:Name="FriendsGrid" IsReadOnly="False" HeadersVisibility="Column">
+                            <DataGrid.Columns>
+                                <DataGridCheckBoxColumn Header="Show" Binding="{Binding Favorite, UpdateSourceTrigger=PropertyChanged}" Width="50" />
+                                <DataGridTextColumn Header="Name"       Binding="{Binding DisplayName}"     Width="*"   IsReadOnly="True" />
+                                <DataGridTextColumn Header="Vis"        Binding="{Binding VisibilityText}"  Width="60"  IsReadOnly="True" />
+                                <DataGridTextColumn Header="#"          Binding="{Binding ModCountText}"    Width="40"  IsReadOnly="True" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,6,0,0">
+                            <Button Content="Refresh sel"  Style="{StaticResource SubtleButton}" Click="OnRefreshFriendClicked" />
+                            <Button Content="Refresh all"  Style="{StaticResource SubtleButton}" Click="OnRefreshAllFriendsClicked" />
+                            <Button Content="Remove"       Style="{StaticResource DangerButton}" Click="OnRemoveFriendClicked" />
+                            <Button Content="↻ Steam"      Style="{StaticResource SubtleButton}" Click="OnRescanSteamRosterClicked"
+                                    ToolTip="Re-scan localconfig.vdf for new Steam friends" />
+                        </StackPanel>
+                    </Grid>
+
+                    <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
+                                  Background="#2A2A2A" ShowsPreview="True" />
+
+                    <!-- ===== RIGHT: mods grid ===== -->
+                    <Grid Grid.Column="2">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+                            <TextBlock Text="Mods" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <Button Content="Reload"        Style="{StaticResource SubtleButton}" Margin="16,0,0,0" Click="OnReloadClicked" />
+                            <Button Content="Move up"       Style="{StaticResource SubtleButton}" Click="OnMoveUpClicked" />
+                            <Button Content="Move down"     Style="{StaticResource SubtleButton}" Click="OnMoveDownClicked" />
+                            <Button Content="Move to top"   Style="{StaticResource SubtleButton}" Click="OnMoveTopClicked" />
+                            <Button Content="Move to bottom" Style="{StaticResource SubtleButton}" Click="OnMoveBottomClicked" />
+                            <Button Content="Enable all"    Style="{StaticResource SubtleButton}" Click="OnEnableAllClicked" />
+                            <Button Content="Disable all"   Style="{StaticResource SubtleButton}" Click="OnDisableAllClicked" />
+                            <Button Content="Auto-sort"     Style="{StaticResource SubtleButton}" Click="OnAutoSortClicked" />
+                            <Button Content="Refresh from Workshop" Style="{StaticResource SubtleButton}" Click="OnRefreshFromWorkshopClicked" />
+                            <Button Content="Export collection" Style="{StaticResource SubtleButton}" Click="OnExportCollectionClicked" />
+                            <Button Content="Save"          Style="{StaticResource ActionButton}" Click="OnSaveClicked" />
+                        </StackPanel>
+
+                        <DockPanel Grid.Row="1" Margin="0,0,0,8">
+                            <TextBlock x:Name="ModsHint" DockPanel.Dock="Right" Foreground="#888" VerticalAlignment="Center"
+                                       Text="Close VT2 + launcher before saving. A .bak is kept." />
+                            <TextBlock Text="Filter:" Foreground="#888" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <TextBox x:Name="FilterBox" Width="320" TextChanged="OnFilterChanged" />
+                        </DockPanel>
+
+                        <DataGrid Grid.Row="2" x:Name="ModsGrid" IsReadOnly="False" CanUserSortColumns="False">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="#"        Binding="{Binding Order}"       Width="36"  IsReadOnly="True" />
                             <DataGridCheckBoxColumn Header="On"   Binding="{Binding Enabled, UpdateSourceTrigger=PropertyChanged}" Width="48" />
@@ -231,6 +280,7 @@
                             </DataGridTemplateColumn>
                         </DataGrid.Columns>
                     </DataGrid>
+                    </Grid>
                 </Grid>
             </TabItem>
 

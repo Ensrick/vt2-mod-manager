@@ -4,6 +4,12 @@ All notable changes to vt2-mod-manager. Versioning follows [SemVer](https://semv
 
 ## [Unreleased]
 
+## [0.1.5]
+
+### Changed
+- **Friends moved to a persistent left sidebar on the Mods tab** (matches Workshop Sentinel's pattern). No more "Manage friends" button — the roster is always visible alongside the mods grid, with a `GridSplitter` between them so you can resize. Toggling "Show" on a friend immediately adds/removes their column from the mods grid.
+- The previously-modeless `FriendsWindow` is no longer opened from the UI; the file is kept in the repo for now but unreferenced.
+
 ## [0.1.4]
 
 ### Added
