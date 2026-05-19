@@ -35,7 +35,7 @@ public sealed record SteamProfileXmlResult(
 /// <c>&lt;visibilityState&gt;</c> mapping (matches Steam's wire protocol):
 /// <list type="bullet">
 ///   <item><description>1 → <see cref="ProfileVisibility.Private"/></description></item>
-///   <item><description>2 → <see cref="ProfileVisibility.Private"/> (friends-only — vt2 doesn't distinguish; see note)</description></item>
+///   <item><description>2 → <see cref="ProfileVisibility.FriendsOnly"/> (scrapable when the requesting account is a friend)</description></item>
 ///   <item><description>3 → <see cref="ProfileVisibility.Public"/></description></item>
 ///   <item><description>anything else / missing → <see cref="ProfileVisibility.Unknown"/></description></item>
 /// </list>
@@ -157,9 +157,7 @@ public sealed class SteamProfileXmlClient
     }
 
     /// <summary>
-    /// Parses <c>&lt;visibilityState&gt;</c>. 1=Private and 2=FriendsOnly both collapse to
-    /// <see cref="ProfileVisibility.Private"/> (vt2's enum doesn't distinguish, and the
-    /// downstream effect — no scrapeable subs — is the same). 3=Public. Anything else
+    /// Parses <c>&lt;visibilityState&gt;</c>. 1=Private, 2=FriendsOnly, 3=Public. Anything else
     /// (including missing element) is <see cref="ProfileVisibility.Unknown"/>.
     /// </summary>
     public static ProfileVisibility ParseVisibility(string xml)
@@ -169,7 +167,7 @@ public sealed class SteamProfileXmlClient
         return m.Groups[1].Value switch
         {
             "1" => ProfileVisibility.Private,
-            "2" => ProfileVisibility.Private,   // friends-only — not exposed to non-friends
+            "2" => ProfileVisibility.FriendsOnly,
             "3" => ProfileVisibility.Public,
             _   => ProfileVisibility.Unknown,
         };

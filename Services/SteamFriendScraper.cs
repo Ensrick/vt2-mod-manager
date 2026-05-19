@@ -7,7 +7,11 @@ using System.Threading.Tasks;
 
 namespace Vt2ModManager.Services;
 
-public enum ProfileVisibility { Public, Private, Unknown }
+/// <summary>Maps Steam's &lt;visibilityState&gt; wire values (1=Private, 2=Friends-only, 3=Public).
+/// Friends-only profiles ARE scrapable when the requesting account is in the owner's friends
+/// list — the cookies on the request determine access. Kept distinct from Private so callers
+/// can decide whether to attempt the scrape vs short-circuit.</summary>
+public enum ProfileVisibility { Public, Private, FriendsOnly, Unknown }
 
 public sealed record FriendModListing(
     string Id,

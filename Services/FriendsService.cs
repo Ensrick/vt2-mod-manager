@@ -154,29 +154,36 @@ public sealed class FriendsService
     }
 
     /// <summary>Re-scrape the friend's subscriptions, refresh <see cref="SessionCache"/>, and stamp LastFetchedUtc.
-    /// XML-pre-flights the profile first to avoid scraping pages that will never expose subs
-    /// (private/friends-only). Updates the persisted display name from the XML when present.</summary>
+    /// XML-pre-flights the profile to read display name and short-circuit on explicit Private (which
+    /// can never expose subs). Friends-only profiles ARE attempted: when the running Steam account
+    /// is in the owner's friends list, the subscriptions page is reachable and the scraper may
+    /// succeed. Unknown visibility (XML unreachable) also attempts — it's cheaper than guessing.</summary>
     public async Task<FriendSubscriptionResult> RefreshAsync(string steamId64, CancellationToken ct = default)
     {
         var probe = await _xmlClient.FetchAsync(steamId64, ct).ConfigureAwait(false);
-        if (probe is not null && probe.Visibility != ProfileVisibility.Public)
+        if (probe is not null && probe.Visibility == ProfileVisibility.Private)
         {
-            // Skip the scrape; record visibility + empty mod list in the cache.
+            // Hard-private: server rejects the subscriptions page for any consumer. Skip.
             var skipped = new FriendSubscriptionResult(
                 SteamId64: steamId64,
-                Visibility: probe.Visibility,
+                Visibility: ProfileVisibility.Private,
                 Mods: Array.Empty<FriendModListing>(),
                 PagesFetched: 0,
-                Error: null);
+                Error: "Profile is private; cannot read subscriptions.");
             _sessionCache[steamId64] = skipped;
             UpdateDisplayName(steamId64, probe.DisplayName);
             return skipped;
         }
 
         var fetch = await _scraper.FetchAsync(steamId64, ct: ct).ConfigureAwait(false);
+        // Promote the XML-reported visibility into the cache when the scraper couldn't classify
+        // it (e.g. friends-only profile that scrape succeeded for, but heuristic missed).
+        if (probe is not null && fetch.Visibility == ProfileVisibility.Unknown)
+            fetch = fetch with { Visibility = probe.Visibility };
+
         _sessionCache[steamId64] = fetch;
 
-        if (fetch.Visibility == ProfileVisibility.Public)
+        if (fetch.Mods.Count > 0 || fetch.Visibility == ProfileVisibility.Public || fetch.Visibility == ProfileVisibility.FriendsOnly)
         {
             var friends = _store.Load();
             var f = friends.FirstOrDefault(x => x.SteamId64 == steamId64);

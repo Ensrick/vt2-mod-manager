@@ -68,7 +68,7 @@ public sealed class SteamProfileXmlClientTests
 
     [Theory]
     [InlineData("<visibilityState>3</visibilityState>", ProfileVisibility.Public)]
-    [InlineData("<visibilityState>2</visibilityState>", ProfileVisibility.Private)] // friends-only collapses
+    [InlineData("<visibilityState>2</visibilityState>", ProfileVisibility.FriendsOnly)]
     [InlineData("<visibilityState>1</visibilityState>", ProfileVisibility.Private)]
     [InlineData("<visibilityState>  3  </visibilityState>", ProfileVisibility.Public)]
     [InlineData("<profile>no field</profile>",          ProfileVisibility.Unknown)]
@@ -118,8 +118,7 @@ public sealed class SteamProfileXmlClientTests
 
         var r = SteamProfileXmlClient.Parse("76561198000000002", xml);
 
-        // visibilityState=2 collapses to Private (vt2 enum has no FriendsOnly member).
-        Assert.Equal(ProfileVisibility.Private, r.Visibility);
+        Assert.Equal(ProfileVisibility.FriendsOnly, r.Visibility);
         Assert.False(r.OnlineNow);
         Assert.Equal("FriendsOnlyUser", r.DisplayName);
     }
@@ -182,7 +181,7 @@ public sealed class SteamProfileXmlClientTests
     }
 
     [Fact]
-    public async Task FetchAsync_returns_friends_only_collapsed_to_private()
+    public async Task FetchAsync_returns_friends_only_visibility()
     {
         var handler = new FixtureHandler(new()
         {
@@ -193,7 +192,7 @@ public sealed class SteamProfileXmlClientTests
         var r = await client.FetchAsync("76561198000000002");
 
         Assert.NotNull(r);
-        Assert.Equal(ProfileVisibility.Private, r!.Visibility);
+        Assert.Equal(ProfileVisibility.FriendsOnly, r!.Visibility);
         Assert.False(r.OnlineNow);
     }
 
@@ -291,9 +290,9 @@ public sealed class SteamProfileXmlClientTests
         });
 
         Assert.Equal(3, results.Count);
-        Assert.Equal(ProfileVisibility.Public,  results["76561198000000001"].Visibility);
-        Assert.Equal(ProfileVisibility.Private, results["76561198000000002"].Visibility);
-        Assert.Equal(ProfileVisibility.Private, results["76561198000000003"].Visibility);
+        Assert.Equal(ProfileVisibility.Public,      results["76561198000000001"].Visibility);
+        Assert.Equal(ProfileVisibility.FriendsOnly, results["76561198000000002"].Visibility);
+        Assert.Equal(ProfileVisibility.Private,     results["76561198000000003"].Visibility);
         Assert.False(results.ContainsKey("76561198000000099"));
     }
 

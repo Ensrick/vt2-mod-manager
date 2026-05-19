@@ -4,6 +4,15 @@ All notable changes to vt2-mod-manager. Versioning follows [SemVer](https://semv
 
 ## [Unreleased]
 
+## [0.1.6]
+
+### Fixed
+- **Friends-only profiles were being skipped instead of scraped.** When the requesting Steam account is in the owner's friends list, the subscriptions page IS reachable for a friends-only profile — but the XML pre-flight collapsed `<visibilityState>=2` to `Private` and short-circuited the scrape. Now `ProfileVisibility.FriendsOnly` is a distinct enum value; `RefreshAsync` only short-circuits on explicit `Private`. Friends-only and Unknown both attempt the scrape.
+
+### Added
+- **Auto-refresh on first Show=true toggle.** Previously you had to click "Refresh sel" after adding a friend to populate their column. Now the toggle kicks off a fetch in the background and re-renders columns as soon as the result lands.
+- Scrape errors and visibility outcomes are now reflected in the sidebar status line on each refresh.
+
 ## [0.1.5]
 
 ### Changed

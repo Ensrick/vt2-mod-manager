@@ -604,7 +604,28 @@ public partial class MainWindow : Window
         {
             try { _friendsService.SetFavorite(row.SteamId64, row.Favorite); } catch { }
             SyncFriendColumns();
+            // Auto-refresh on first Show=true so the column populates immediately instead of
+            // waiting for the user to click "Refresh sel".
+            if (row.Favorite && !_friendsService.SessionCache.ContainsKey(row.SteamId64))
+                _ = AutoRefreshFriendAsync(row);
         }
+    }
+
+    private async System.Threading.Tasks.Task AutoRefreshFriendAsync(ViewModels.FriendRowViewModel row)
+    {
+        if (_friendsService is null) return;
+        SetStatus($"Fetching {row.DisplayName}'s subscriptions…");
+        try
+        {
+            var result = await _friendsService.RefreshAsync(row.SteamId64);
+            row.AttachResult(result);
+            SyncFriendColumns();
+            if (!string.IsNullOrEmpty(result.Error))
+                SetStatus($"{row.DisplayName}: {result.Error}");
+            else
+                SetStatus($"{row.DisplayName}: {result.Visibility}, {result.Mods.Count} mod(s).");
+        }
+        catch (Exception ex) { SetStatus($"Auto-refresh of {row.DisplayName} failed: {ex.Message}"); }
     }
 
     private async void OnAddFriendClicked(object sender, RoutedEventArgs e)
