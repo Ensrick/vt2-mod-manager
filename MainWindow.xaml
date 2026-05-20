@@ -193,7 +193,13 @@
                             <DataGrid.Columns>
                                 <DataGridCheckBoxColumn Header="Show" Binding="{Binding Favorite, UpdateSourceTrigger=PropertyChanged}" Width="50" />
                                 <DataGridTextColumn Header="Name"       Binding="{Binding DisplayName}"     Width="*"   IsReadOnly="True" />
-                                <DataGridTextColumn Header="Vis"        Binding="{Binding VisibilityText}"  Width="60"  IsReadOnly="True" />
+                                <DataGridTemplateColumn Header="Vis" Width="68">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding VisibilityText}" ToolTip="{Binding VisibilityTooltip}" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
                                 <DataGridTextColumn Header="#"          Binding="{Binding ModCountText}"    Width="40"  IsReadOnly="True" />
                             </DataGrid.Columns>
                         </DataGrid>

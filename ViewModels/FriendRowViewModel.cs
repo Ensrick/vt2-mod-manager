@@ -40,7 +40,30 @@ public sealed class FriendRowViewModel : INotifyPropertyChanged
         ? t.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)
         : "—";
 
-    public string VisibilityText => _last?.Visibility.ToString() ?? "—";
+    public string VisibilityText
+    {
+        get
+        {
+            if (_last is null) return "—";
+            // LoginRequired is more actionable than "Public"/"Private"/etc — surface it first
+            // so the sidebar # column doesn't read as "this friend has zero subs" when the real
+            // problem is that Steam isn't signed in on this machine.
+            if (_last.AuthState == FriendScrapeAuthState.LoginRequired) return "Login";
+            return _last.Visibility.ToString();
+        }
+    }
+    public string VisibilityTooltip => _last switch
+    {
+        null => "Click Refresh to fetch this friend's subscriptions.",
+        { AuthState: FriendScrapeAuthState.LoginRequired } =>
+            "Steam requires an authenticated session to read another user's subscriptions. Open the Steam client and sign in, then click Refresh.",
+        { Visibility: ProfileVisibility.Private } =>
+            "This friend's Steam profile is private — subscriptions aren't readable.",
+        { Visibility: ProfileVisibility.FriendsOnly, Mods.Count: 0 } =>
+            "Friends-only profile. If you're in their friend list and Steam is signed in, click Refresh; otherwise the list will stay empty.",
+        { Error: { } err } => err,
+        _ => "OK",
+    };
     public int? ModCount => _last is null ? null : _last.Mods.Count;
     public string ModCountText => _last is null ? "—" : _last.Mods.Count.ToString(CultureInfo.InvariantCulture);
     public string ProfileUrl => $"https://steamcommunity.com/profiles/{Friend.SteamId64}";
@@ -49,6 +72,7 @@ public sealed class FriendRowViewModel : INotifyPropertyChanged
     {
         _last = result;
         OnPropertyChanged(nameof(VisibilityText));
+        OnPropertyChanged(nameof(VisibilityTooltip));
         OnPropertyChanged(nameof(ModCount));
         OnPropertyChanged(nameof(ModCountText));
         OnPropertyChanged(nameof(LastFetchedDisplay));

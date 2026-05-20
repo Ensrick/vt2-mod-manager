@@ -29,11 +29,14 @@ Single-file self-contained `win-x64` build. No .NET runtime install required.
 - Save / Apply / Delete. Apply reports any missing or extra mods relative to the current subscription set.
 - Stored at `%APPDATA%\Vt2ModManager\profiles\<name>.json`.
 
-### Friends tab
-- Add friends by SteamID64, vanity URL, or full profile URL.
-- Star favorites; selection persists across launches.
-- Selected friends appear as dynamic columns on the Mods tab: a check / cross / question mark per row indicating whether that friend is subscribed to the mod.
-- Virtual rows surface mods a friend has subscribed but you haven't, with a `Subscribe` button that opens the Workshop page.
+### Friends sidebar (left of the Mods grid)
+- Auto-loads your Steam friend roster from `<SteamRoot>\userdata\<accountid>\config\localconfig.vdf`. Add additional friends by SteamID64, vanity URL, or full profile URL.
+- Toggle **Show** to add a friend as a column on the Mods grid.
+- Each row shows a Vis column with `Public` / `FriendsOnly` / `Private` / `Login`. Hover for an actionable hint.
+- Checkbox columns on Mods grid show whether the friend is subscribed to each row.
+- Virtual rows surface mods a friend has subscribed to but you haven't, with a `Subscribe` button that opens the Workshop page in the Steam overlay.
+
+**Requires Steam to be running and signed in.** Steam routes anonymous requests for another user's `?browsefilter=mysubscriptions` page to a login interstitial — even for fully Public profiles. We pull the live `steamLoginSecure` session cookie from Steam's CEF cache, which only exists while the client is running. If Steam is closed, the Vis column shows `Login` with a tooltip explaining how to fix it. There's no Steam Web API endpoint that bypasses this — `IPublishedFileService` exposes authored files, not subscriptions.
 
 ### Conflicts tab
 - Tier-1 static-scan of loose `.lua` source under each enabled mod's `source/` folder.

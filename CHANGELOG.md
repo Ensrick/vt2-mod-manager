@@ -4,6 +4,19 @@ All notable changes to vt2-mod-manager. Versioning follows [SemVer](https://semv
 
 ## [Unreleased]
 
+## [0.1.11]
+
+### Added
+- **Steam-running preflight** before each friend scrape. If the Steam client isn't open, we short-circuit with `AuthState = LoginRequired` and a clear status message instead of failing on the login interstitial later.
+- **Vis column tooltip** on the friends sidebar. Hover any row to see the actionable explanation: `LoginRequired` says "open Steam and sign in"; `Private` says "subscriptions aren't readable"; `FriendsOnly` with empty mods explains the friend-list requirement.
+- **README** documents the Steam-running-and-signed-in requirement and explains why a Web API key doesn't help (`IPublishedFileService` returns authored files, not subscriptions — Steam doesn't expose another user's sub list via the API).
+
+### Changed
+- Sidebar `Vis` column now shows `Login` (4 chars, fits in the existing width) when the scraper hit the auth gate. Easier to spot than the previous `Unknown` fallback.
+
+### Rationale on the Web API key path (the second item in the request)
+After investigation, a Steam Web API key does NOT enable reading other users' subscriptions. The closest endpoint, `IPublishedFileService/GetUserFiles`, returns files a user *authored*, not files they *subscribe to*. Steam intentionally requires user-context authentication for cross-user subscription reads, which is what our CEF-cookie path already does. Skipping the API key plumbing keeps `settings.json` uncluttered with a knob that wouldn't help anyone.
+
 ## [0.1.10]
 
 ### Fixed

@@ -178,6 +178,22 @@ public sealed class FriendsService
     /// succeed. Unknown visibility (XML unreachable) also attempts — it's cheaper than guessing.</summary>
     public async Task<FriendSubscriptionResult> RefreshAsync(string steamId64, CancellationToken ct = default)
     {
+        // Steam-running preflight. The scraper depends on CEF cookies; if Steam isn't open,
+        // the cookies are either stale (steamLoginSecure is rotated on each login) or absent,
+        // and the request will hit the login interstitial. Short-circuit with a clear error.
+        if (!GameLauncher.IsSteamRunning())
+        {
+            var noSteam = new FriendSubscriptionResult(
+                SteamId64: steamId64,
+                Visibility: ProfileVisibility.Unknown,
+                Mods: Array.Empty<FriendModListing>(),
+                PagesFetched: 0,
+                Error: "Steam client isn't running. Start Steam and sign in, then refresh.",
+                AuthState: FriendScrapeAuthState.LoginRequired);
+            _sessionCache[steamId64] = noSteam;
+            return noSteam;
+        }
+
         var probe = await _xmlClient.FetchAsync(steamId64, ct).ConfigureAwait(false);
         if (probe is not null && probe.Visibility == ProfileVisibility.Private)
         {
